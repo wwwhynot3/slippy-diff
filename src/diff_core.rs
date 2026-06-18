@@ -329,6 +329,75 @@ pub fn build_display_diff(left: &str, right: &str, options: &DiffOptions) -> Dis
     }
 }
 
+pub fn render_unified_diff(diff: &DisplayDiff) -> String {
+    if diff.ops.is_empty() {
+        return "No differences\n".to_string();
+    }
+
+    let mut out = String::new();
+    out.push_str("--- left\n+++ right\n");
+
+    let left_count = diff
+        .ops
+        .iter()
+        .filter(|op| !matches!(op, DiffOp::Insert { .. }))
+        .count()
+        .max(1);
+    let right_count = diff
+        .ops
+        .iter()
+        .filter(|op| !matches!(op, DiffOp::Delete { .. }))
+        .count()
+        .max(1);
+    out.push_str(&format!("@@ -1,{left_count} +1,{right_count} @@\n"));
+
+    for op in &diff.ops {
+        match op {
+            DiffOp::Context { text } => {
+                out.push(' ');
+                out.push_str(text);
+                out.push('\n');
+            }
+            DiffOp::Delete { text } => {
+                out.push('-');
+                out.push_str(text);
+                out.push('\n');
+            }
+            DiffOp::Insert { text } => {
+                out.push('+');
+                out.push_str(text);
+                out.push('\n');
+            }
+            DiffOp::Inline { segments } => {
+                let (mut old, mut new) = (String::new(), String::new());
+                for s in segments {
+                    match s.kind {
+                        InlineDiffSegmentKind::Equal => {
+                            old.push_str(&s.text);
+                            new.push_str(&s.text);
+                        }
+                        InlineDiffSegmentKind::Delete => old.push_str(&s.text),
+                        InlineDiffSegmentKind::Insert => new.push_str(&s.text),
+                    }
+                }
+                out.push('-');
+                out.push_str(&old);
+                out.push('\n');
+                out.push('+');
+                out.push_str(&new);
+                out.push('\n');
+            }
+        }
+    }
+
+    if let Some(notice) = no_newline_notice(diff.left_no_newline, diff.right_no_newline) {
+        out.push_str(notice);
+        out.push('\n');
+    }
+
+    ensure_single_trailing_newline(out)
+}
+
 fn exact_ops(left: &str, right: &str) -> Vec<DiffOp> {
     let diff = TextDiff::from_lines(left, right);
     let mut ops = Vec::new();
@@ -796,5 +865,35 @@ mod tests {
             d.ops.iter().all(|op| !matches!(op, DiffOp::Inline { .. })),
             "fallback must not inline-pair"
         );
+    }
+
+    #[test]
+    fn render_unified_diff_emits_no_differences_for_empty_ops() {
+        let d = DisplayDiff::no_changes("same\n", "same\n");
+        assert_eq!(render_unified_diff(&d), "No differences\n");
+    }
+
+    #[test]
+    fn render_unified_diff_formats_ops_as_standard_text() {
+        let d = build_display_diff("a\nb", "a\nc", &DiffOptions::default());
+        let text = render_unified_diff(&d);
+        assert!(text.starts_with("--- left\n+++ right\n"));
+        assert!(text.contains("@@ -1,2 +1,2 @@\n"));
+        assert!(text.contains(" a\n"));
+        assert!(text.contains("-b\n"));
+        assert!(text.contains("+c\n"));
+        assert!(text.ends_with('\n') && !text.ends_with("\n\n"));
+    }
+
+    #[test]
+    fn render_unified_diff_expands_inline_pair_to_minus_plus() {
+        let d = build_display_diff(
+            "i wanna eatt banana",
+            "i wanna eat bananas",
+            &DiffOptions::default(),
+        );
+        let text = render_unified_diff(&d);
+        assert!(text.contains("-i wanna eatt banana\n"));
+        assert!(text.contains("+i wanna eat bananas\n"));
     }
 }
