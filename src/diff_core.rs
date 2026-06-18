@@ -6,6 +6,36 @@ pub const DEBOUNCE_MS: u64 = 300;
 pub const AUTO_DIFF_MAX_BYTES: usize = 256 * 1024;
 pub const AUTO_DIFF_MAX_LINES: usize = 8_000;
 pub const UNIFIED_CONTEXT_RADIUS: usize = 3;
+
+/// All tunable numbers and ratios for the diff engine. The canonical defaults
+/// live in `Default`; config overrides are applied on top of these.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DiffOptions {
+    pub debounce_ms: u64,
+    pub auto_diff_max_bytes: usize,
+    pub auto_diff_max_lines: usize,
+    pub unified_context_radius: usize,
+    pub inline_max_changed_ratio: f32,
+    pub display_full_context_max_lines: usize,
+    pub similarity_pairing_max_lines: usize,
+    pub alignment_band: usize,
+}
+
+impl Default for DiffOptions {
+    fn default() -> Self {
+        Self {
+            debounce_ms: 300,
+            auto_diff_max_bytes: 256 * 1024,
+            auto_diff_max_lines: 8_000,
+            unified_context_radius: 3,
+            inline_max_changed_ratio: 0.50,
+            display_full_context_max_lines: 200,
+            similarity_pairing_max_lines: 1_000,
+            alignment_band: 25,
+        }
+    }
+}
+
 pub const INLINE_DIFF_MAX_CHANGED_RATIO: f32 = 0.50;
 const RAW_NO_NEWLINE_MARKER: &str = "\\ No newline at end of file";
 const BOTH_SIDES_NO_NEWLINE_MARKER: &str = "! Left and right text end without a trailing newline";
@@ -448,5 +478,18 @@ mod tests {
         let left = "x\n".repeat(AUTO_DIFF_MAX_LINES + 1);
 
         assert!(!should_auto_diff(&left, ""));
+    }
+
+    #[test]
+    fn diff_options_default_matches_contract() {
+        let o = DiffOptions::default();
+        assert_eq!(o.debounce_ms, 300);
+        assert_eq!(o.auto_diff_max_bytes, 256 * 1024);
+        assert_eq!(o.auto_diff_max_lines, 8_000);
+        assert_eq!(o.unified_context_radius, 3);
+        assert!((o.inline_max_changed_ratio - 0.50).abs() < f32::EPSILON);
+        assert_eq!(o.display_full_context_max_lines, 200);
+        assert_eq!(o.similarity_pairing_max_lines, 1_000);
+        assert_eq!(o.alignment_band, 25);
     }
 }
