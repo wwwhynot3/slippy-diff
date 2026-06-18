@@ -2,11 +2,6 @@ use std::ops::Range;
 
 use similar::{ChangeTag, TextDiff};
 
-pub const DEBOUNCE_MS: u64 = 300;
-pub const AUTO_DIFF_MAX_BYTES: usize = 256 * 1024;
-pub const AUTO_DIFF_MAX_LINES: usize = 8_000;
-pub const UNIFIED_CONTEXT_RADIUS: usize = 3;
-
 /// All tunable numbers and ratios for the diff engine. The canonical defaults
 /// live in `Default`; config overrides are applied on top of these.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -36,7 +31,6 @@ impl Default for DiffOptions {
     }
 }
 
-pub const INLINE_DIFF_MAX_CHANGED_RATIO: f32 = 0.50;
 const RAW_NO_NEWLINE_MARKER: &str = "\\ No newline at end of file";
 const BOTH_SIDES_NO_NEWLINE_MARKER: &str = "! Left and right text end without a trailing newline";
 const LEFT_NO_NEWLINE_MARKER: &str = "! Left text ends without a trailing newline";
@@ -93,11 +87,11 @@ struct InlineDiffAnalysis {
     changed_ratio: f32,
 }
 
-pub fn should_auto_diff(left: &str, right: &str) -> bool {
+pub fn should_auto_diff(left: &str, right: &str, options: &DiffOptions) -> bool {
     let total_bytes = left.len() + right.len();
     let total_lines = left.lines().count() + right.lines().count();
 
-    total_bytes <= AUTO_DIFF_MAX_BYTES && total_lines <= AUTO_DIFF_MAX_LINES
+    total_bytes <= options.auto_diff_max_bytes && total_lines <= options.auto_diff_max_lines
 }
 
 pub fn build_unified_diff(left: &str, right: &str) -> String {
@@ -108,7 +102,7 @@ pub fn build_unified_diff(left: &str, right: &str) -> String {
     let diff = TextDiff::from_lines(left, right)
         .unified_diff()
         .header("left", "right")
-        .context_radius(UNIFIED_CONTEXT_RADIUS)
+        .context_radius(DiffOptions::default().unified_context_radius)
         .to_string();
 
     ensure_single_trailing_newline(make_no_newline_markers_friendly(
@@ -137,7 +131,7 @@ pub fn inline_changed_byte_ranges(
     insert_line: &str,
 ) -> Option<InlineDiffRanges> {
     let analysis = analyze_inline_diff(delete_line, insert_line)?;
-    if analysis.changed_ratio <= INLINE_DIFF_MAX_CHANGED_RATIO {
+    if analysis.changed_ratio <= DiffOptions::default().inline_max_changed_ratio {
         Some(InlineDiffRanges {
             delete_ranges: analysis.delete_ranges,
             insert_ranges: analysis.insert_ranges,
@@ -149,7 +143,7 @@ pub fn inline_changed_byte_ranges(
 
 pub fn inline_diff_match(delete_line: &str, insert_line: &str) -> Option<InlineDiffMatch> {
     let analysis = analyze_inline_diff(delete_line, insert_line)?;
-    if analysis.changed_ratio <= INLINE_DIFF_MAX_CHANGED_RATIO {
+    if analysis.changed_ratio <= DiffOptions::default().inline_max_changed_ratio {
         Some(InlineDiffMatch {
             segments: analysis.segments,
             changed_ratio: analysis.changed_ratio,
@@ -695,7 +689,7 @@ mod tests {
                 },
             ]
         );
-        assert!(inline.changed_ratio <= INLINE_DIFF_MAX_CHANGED_RATIO);
+        assert!(inline.changed_ratio <= DiffOptions::default().inline_max_changed_ratio);
     }
 
     #[test]
@@ -727,7 +721,7 @@ mod tests {
                 },
             ]
         );
-        assert!(inline.changed_ratio <= INLINE_DIFF_MAX_CHANGED_RATIO);
+        assert!(inline.changed_ratio <= DiffOptions::default().inline_max_changed_ratio);
     }
 
     #[test]
@@ -737,21 +731,25 @@ mod tests {
 
     #[test]
     fn auto_diff_allows_small_inputs() {
-        assert!(should_auto_diff("left\n", "right\n"));
+        assert!(should_auto_diff(
+            "left\n",
+            "right\n",
+            &DiffOptions::default()
+        ));
     }
 
     #[test]
     fn auto_diff_rejects_large_byte_inputs() {
-        let left = "x".repeat(AUTO_DIFF_MAX_BYTES + 1);
+        let left = "x".repeat(DiffOptions::default().auto_diff_max_bytes + 1);
 
-        assert!(!should_auto_diff(&left, ""));
+        assert!(!should_auto_diff(&left, "", &DiffOptions::default()));
     }
 
     #[test]
     fn auto_diff_rejects_large_line_inputs() {
-        let left = "x\n".repeat(AUTO_DIFF_MAX_LINES + 1);
+        let left = "x\n".repeat(DiffOptions::default().auto_diff_max_lines + 1);
 
-        assert!(!should_auto_diff(&left, ""));
+        assert!(!should_auto_diff(&left, "", &DiffOptions::default()));
     }
 
     #[test]

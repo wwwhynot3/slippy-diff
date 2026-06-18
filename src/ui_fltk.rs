@@ -23,8 +23,8 @@ use crate::{
         load_config_from_path, save_config_to_path,
     },
     diff_core::{
-        DEBOUNCE_MS, DiffLineKind, InlineDiffSegmentKind, classify_diff_line, inline_diff_match,
-        should_auto_diff,
+        DiffLineKind, DiffOptions, InlineDiffSegmentKind, classify_diff_line, inline_diff_match,
+        render_unified_diff,
     },
 };
 
@@ -53,6 +53,35 @@ const PANE_GAP: i32 = 8;
 const LINE_NUMBER_WIDTH: i32 = 44;
 const STACK_INPUT_WIDTH: i32 = 760;
 
+fn diff_options_from_config(overrides: &crate::config::DiffOverrides) -> DiffOptions {
+    let mut o = DiffOptions::default();
+    if let Some(v) = overrides.debounce_ms {
+        o.debounce_ms = v;
+    }
+    if let Some(v) = overrides.auto_diff_max_bytes {
+        o.auto_diff_max_bytes = v;
+    }
+    if let Some(v) = overrides.auto_diff_max_lines {
+        o.auto_diff_max_lines = v;
+    }
+    if let Some(v) = overrides.unified_context_radius {
+        o.unified_context_radius = v;
+    }
+    if let Some(v) = overrides.inline_max_changed_ratio {
+        o.inline_max_changed_ratio = v;
+    }
+    if let Some(v) = overrides.display_full_context_max_lines {
+        o.display_full_context_max_lines = v;
+    }
+    if let Some(v) = overrides.similarity_pairing_max_lines {
+        o.similarity_pairing_max_lines = v;
+    }
+    if let Some(v) = overrides.alignment_band {
+        o.alignment_band = v;
+    }
+    o
+}
+
 struct UiHandles {
     left_editor: TextEditor,
     right_editor: TextEditor,
@@ -72,7 +101,6 @@ enum UiMessage {
 pub fn run() -> Result<(), FltkError> {
     let app = app::App::default().with_scheme(app::Scheme::Gtk);
 
-    let state = Rc::new(RefCell::new(AppState::default()));
     let config_file = config_path().ok();
     let config = config_file
         .as_ref()
@@ -81,6 +109,8 @@ pub fn run() -> Result<(), FltkError> {
             config: AppConfig::default(),
             status: ConfigLoadStatus::Missing,
         });
+    let options = diff_options_from_config(&config.config.diff);
+    let state = Rc::new(RefCell::new(AppState::new(options)));
     if config.status == ConfigLoadStatus::Invalid {
         state
             .borrow_mut()
@@ -432,7 +462,11 @@ fn schedule_auto_compare(
     sender: app::Sender<UiMessage>,
     debounce_generation: &Rc<Cell<u64>>,
 ) {
-    if !should_auto_diff(state.borrow().left(), state.borrow().right()) {
+    let (should, debounce_ms) = {
+        let s = state.borrow();
+        (s.should_auto_diff(), s.options().debounce_ms)
+    };
+    if !should {
         render_state(state, handles);
         return;
     }
@@ -442,7 +476,7 @@ fn schedule_auto_compare(
     let state = state.clone();
     let handles = handles.clone();
     let debounce_generation = debounce_generation.clone();
-    app::add_timeout3(DEBOUNCE_MS as f64 / 1000.0, move |_| {
+    app::add_timeout3(debounce_ms as f64 / 1000.0, move |_| {
         if debounce_generation.get() == generation {
             sync_state_from_buffers(&state, &handles);
             let Some(request) = state.borrow_mut().create_auto_request() else {
@@ -489,7 +523,7 @@ fn copy_current_diff(state: &Rc<RefCell<AppState>>, handles: &Rc<RefCell<UiHandl
         render_state(state, handles);
         return;
     }
-    let diff = state_snapshot.diff().to_string();
+    let diff = render_unified_diff(state_snapshot.diff());
     drop(state_snapshot);
 
     match Clipboard::new().and_then(|mut clipboard| clipboard.set_text(diff)) {
@@ -517,7 +551,14 @@ fn render_state(state: &Rc<RefCell<AppState>>, handles: &Rc<RefCell<UiHandles>>)
     let mut diff_style_buffer = handles.diff_style_buffer.clone();
     let mut status = handles.status.clone();
     let mut copy_diff = handles.copy_diff.clone();
-    let source_diff = rendered_diff_text(&state);
+    let source_diff = if state.has_stale_diff() {
+        format!(
+            "Previous diff is stale. Press Compare to update.\n\n{}",
+            render_unified_diff(state.diff())
+        )
+    } else {
+        render_unified_diff(state.diff())
+    };
     let rendered_diff = render_diff_display(&source_diff);
     diff_buffer.set_text(&rendered_diff.text);
     diff_style_buffer.set_text(&rendered_diff.styles);
@@ -526,17 +567,6 @@ fn render_state(state: &Rc<RefCell<AppState>>, handles: &Rc<RefCell<UiHandles>>)
         copy_diff.activate();
     } else {
         copy_diff.deactivate();
-    }
-}
-
-fn rendered_diff_text(state: &AppState) -> String {
-    if state.has_stale_diff() {
-        format!(
-            "Previous diff is stale. Press Compare to update.\n\n{}",
-            state.diff()
-        )
-    } else {
-        state.diff().to_string()
     }
 }
 

@@ -1,6 +1,5 @@
-use crate::diff_core::{build_unified_diff, should_auto_diff};
+use crate::diff_core::{DiffOptions, DisplayDiff, build_display_diff, should_auto_diff};
 
-pub const STARTUP_DIFF_HELPER: &str = "";
 pub const STARTUP_STATUS: &str = "Ready. Paste left and right text.";
 pub const STATUS_DIFF_PENDING: &str = "Diff pending...";
 pub const STATUS_DIFF_RUNNING: &str = "Diff running...";
@@ -9,11 +8,12 @@ pub const STATUS_NO_DIFFERENCES: &str = "No differences.";
 pub const STATUS_LARGE_INPUT: &str = "Large input - press Compare to update.";
 pub const STATUS_CLEARED: &str = "Ready. Paste left and right text.";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct DiffRequest {
     pub id: u64,
     pub left: String,
     pub right: String,
+    pub options: DiffOptions,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,14 +26,16 @@ pub enum ApplyOutcome {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiffResult {
     pub id: u64,
-    pub diff: String,
+    pub diff: DisplayDiff,
 }
 
 #[derive(Debug, Clone)]
 pub struct AppState {
     left: String,
     right: String,
-    diff: String,
+    diff: DisplayDiff,
+    has_result: bool,
+    options: DiffOptions,
     status: String,
     latest_request_id: u64,
     dirty_since_latest_request: bool,
@@ -42,19 +44,25 @@ pub struct AppState {
 
 impl Default for AppState {
     fn default() -> Self {
+        Self::new(DiffOptions::default())
+    }
+}
+
+impl AppState {
+    pub fn new(options: DiffOptions) -> Self {
         Self {
             left: String::new(),
             right: String::new(),
-            diff: STARTUP_DIFF_HELPER.to_string(),
+            diff: DisplayDiff::no_changes("", ""),
+            has_result: false,
+            options,
             status: STARTUP_STATUS.to_string(),
             latest_request_id: 0,
             dirty_since_latest_request: false,
             dirty: false,
         }
     }
-}
 
-impl AppState {
     pub fn left(&self) -> &str {
         &self.left
     }
@@ -63,25 +71,33 @@ impl AppState {
         &self.right
     }
 
-    pub fn diff(&self) -> &str {
+    pub fn diff(&self) -> &DisplayDiff {
         &self.diff
+    }
+
+    pub fn options(&self) -> &DiffOptions {
+        &self.options
     }
 
     pub fn status(&self) -> &str {
         &self.status
     }
 
+    pub fn should_auto_diff(&self) -> bool {
+        should_auto_diff(&self.left, &self.right, &self.options)
+    }
+
     pub fn has_current_diff(&self) -> bool {
-        !self.diff.is_empty() && !self.dirty
+        self.has_result && !self.dirty
     }
 
     pub fn has_stale_diff(&self) -> bool {
-        !self.diff.is_empty() && self.dirty
+        self.has_result && self.dirty
     }
 
     pub fn set_left(&mut self, value: String) -> bool {
         if self.left == value {
-            return should_auto_diff(&self.left, &self.right);
+            return self.should_auto_diff();
         }
 
         self.left = value;
@@ -90,7 +106,7 @@ impl AppState {
 
     pub fn set_right(&mut self, value: String) -> bool {
         if self.right == value {
-            return should_auto_diff(&self.left, &self.right);
+            return self.should_auto_diff();
         }
 
         self.right = value;
@@ -105,7 +121,8 @@ impl AppState {
     pub fn clear(&mut self) {
         self.left.clear();
         self.right.clear();
-        self.diff.clear();
+        self.diff = DisplayDiff::no_changes("", "");
+        self.has_result = false;
         self.latest_request_id = self.latest_request_id.saturating_add(1);
         self.dirty_since_latest_request = false;
         self.dirty = false;
@@ -117,7 +134,7 @@ impl AppState {
     }
 
     pub fn create_auto_request(&mut self) -> Option<DiffRequest> {
-        if should_auto_diff(&self.left, &self.right) {
+        if self.should_auto_diff() {
             Some(self.create_request())
         } else {
             self.status = STATUS_LARGE_INPUT.to_string();
@@ -135,8 +152,9 @@ impl AppState {
         }
 
         self.diff = result.diff;
+        self.has_result = true;
         self.dirty = false;
-        self.status = if self.diff == "No differences\n" {
+        self.status = if self.diff.ops.is_empty() {
             STATUS_NO_DIFFERENCES.to_string()
         } else {
             STATUS_DIFF_UPDATED.to_string()
@@ -153,7 +171,7 @@ impl AppState {
         self.dirty = true;
         self.dirty_since_latest_request = true;
 
-        if should_auto_diff(&self.left, &self.right) {
+        if self.should_auto_diff() {
             self.status = STATUS_DIFF_PENDING.to_string();
             true
         } else {
@@ -171,6 +189,7 @@ impl AppState {
             id: self.latest_request_id,
             left: self.left.clone(),
             right: self.right.clone(),
+            options: self.options,
         }
     }
 }
@@ -179,7 +198,7 @@ impl DiffRequest {
     pub fn compute(self) -> DiffResult {
         DiffResult {
             id: self.id,
-            diff: build_unified_diff(&self.left, &self.right),
+            diff: build_display_diff(&self.left, &self.right, &self.options),
         }
     }
 }
@@ -187,7 +206,7 @@ impl DiffRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::diff_core::AUTO_DIFF_MAX_BYTES;
+    use crate::diff_core::{DiffOptions, render_unified_diff};
 
     #[test]
     fn default_state_matches_startup_contract() {
@@ -195,7 +214,7 @@ mod tests {
 
         assert_eq!(state.left(), "");
         assert_eq!(state.right(), "");
-        assert_eq!(state.diff(), "");
+        assert!(state.diff().ops.is_empty());
         assert_eq!(state.status(), STARTUP_STATUS);
         assert!(!state.has_current_diff());
     }
@@ -215,7 +234,8 @@ mod tests {
     fn large_edit_skips_auto_diff_and_sets_manual_compare_status() {
         let mut state = AppState::default();
 
-        let should_schedule = state.set_left("x".repeat(AUTO_DIFF_MAX_BYTES + 1));
+        let should_schedule =
+            state.set_left("x".repeat(DiffOptions::default().auto_diff_max_bytes + 1));
 
         assert!(!should_schedule);
         assert_eq!(state.status(), STATUS_LARGE_INPUT);
@@ -224,11 +244,14 @@ mod tests {
     #[test]
     fn manual_compare_bypasses_large_input_guard() {
         let mut state = AppState::default();
-        state.set_left("x".repeat(AUTO_DIFF_MAX_BYTES + 1));
+        state.set_left("x".repeat(DiffOptions::default().auto_diff_max_bytes + 1));
 
         let request = state.create_manual_request();
 
-        assert_eq!(request.left.len(), AUTO_DIFF_MAX_BYTES + 1);
+        assert_eq!(
+            request.left.len(),
+            DiffOptions::default().auto_diff_max_bytes + 1
+        );
         assert_eq!(state.status(), STATUS_DIFF_RUNNING);
     }
 
@@ -242,8 +265,8 @@ mod tests {
         let outcome = state.apply_result(result);
 
         assert_eq!(outcome, ApplyOutcome::Applied);
-        assert!(state.diff().contains("-left\n"));
-        assert!(state.diff().contains("+right\n"));
+        assert!(render_unified_diff(state.diff()).contains("-left\n"));
+        assert!(render_unified_diff(state.diff()).contains("+right\n"));
         assert_eq!(state.status(), STATUS_DIFF_UPDATED);
         assert!(state.has_current_diff());
     }
@@ -258,7 +281,7 @@ mod tests {
         let outcome = state.apply_result(result);
 
         assert_eq!(outcome, ApplyOutcome::Applied);
-        assert_eq!(state.diff(), "No differences\n");
+        assert!(state.diff().ops.is_empty());
         assert_eq!(state.status(), STATUS_NO_DIFFERENCES);
     }
 
@@ -270,7 +293,7 @@ mod tests {
         let result = state.create_manual_request().compute();
         state.apply_result(result);
 
-        state.set_left("x".repeat(AUTO_DIFF_MAX_BYTES + 1));
+        state.set_left("x".repeat(DiffOptions::default().auto_diff_max_bytes + 1));
 
         assert_eq!(state.status(), STATUS_LARGE_INPUT);
         assert!(state.has_stale_diff());
@@ -316,7 +339,7 @@ mod tests {
         );
         assert_eq!(state.left(), "");
         assert_eq!(state.right(), "");
-        assert_eq!(state.diff(), "");
+        assert_eq!(state.diff().ops.len(), 0);
         assert_eq!(state.status(), STATUS_CLEARED);
     }
 
@@ -345,6 +368,6 @@ mod tests {
         state.set_right("same\n".to_string());
 
         assert_eq!(state.apply_result(result), ApplyOutcome::Applied);
-        assert_eq!(state.diff(), "No differences\n");
+        assert!(state.diff().ops.is_empty());
     }
 }
