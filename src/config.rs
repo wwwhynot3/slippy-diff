@@ -25,6 +25,8 @@ pub struct AppConfig {
     pub theme: Theme,
     pub ui_font: String,
     pub mono_font: String,
+    #[serde(default)]
+    pub diff: DiffOverrides,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,6 +34,40 @@ pub enum Theme {
     System,
     Light,
     Dark,
+}
+
+/// Optional per-field overrides for the diff engine tunables. Every field
+/// defaults to `None`, meaning "use the `DiffOptions` default". `ui_fltk`
+/// applies these on top of `DiffOptions::default()`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct DiffOverrides {
+    pub debounce_ms: Option<u64>,
+    pub auto_diff_max_bytes: Option<usize>,
+    pub auto_diff_max_lines: Option<usize>,
+    pub unified_context_radius: Option<usize>,
+    pub inline_max_changed_ratio: Option<f32>,
+    pub display_full_context_max_lines: Option<usize>,
+    pub similarity_pairing_max_lines: Option<usize>,
+    pub alignment_band: Option<usize>,
+}
+
+impl DiffOverrides {
+    /// Drop values that are out of range so the bridge falls back to defaults.
+    pub fn sanitized(self) -> Self {
+        let keep_ge = |v: Option<usize>, min: usize| v.filter(|x| *x >= min);
+        Self {
+            debounce_ms: self.debounce_ms,
+            auto_diff_max_bytes: keep_ge(self.auto_diff_max_bytes, 0),
+            auto_diff_max_lines: keep_ge(self.auto_diff_max_lines, 0),
+            unified_context_radius: keep_ge(self.unified_context_radius, 0),
+            inline_max_changed_ratio: self
+                .inline_max_changed_ratio
+                .filter(|x| (0.0..=1.0).contains(x)),
+            display_full_context_max_lines: keep_ge(self.display_full_context_max_lines, 0),
+            similarity_pairing_max_lines: keep_ge(self.similarity_pairing_max_lines, 0),
+            alignment_band: keep_ge(self.alignment_band, 1),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +105,7 @@ impl Default for AppConfig {
             theme: Theme::System,
             ui_font: String::new(),
             mono_font: String::new(),
+            diff: DiffOverrides::default(),
         }
     }
 }
@@ -80,6 +117,7 @@ impl AppConfig {
         self.vertical_split = self
             .vertical_split
             .clamp(MIN_VERTICAL_SPLIT, MAX_VERTICAL_SPLIT);
+        self.diff = self.diff.sanitized();
         self
     }
 }
@@ -227,5 +265,49 @@ mod tests {
         assert_eq!(result.config.height, MIN_HEIGHT);
         assert_eq!(result.config.vertical_split, MAX_VERTICAL_SPLIT);
         assert_eq!(result.config.theme, Theme::Light);
+    }
+
+    #[test]
+    fn missing_diff_overrides_defaults_to_all_none() {
+        let config = AppConfig::default();
+        assert_eq!(config.diff, DiffOverrides::default());
+    }
+
+    #[test]
+    fn diff_overrides_round_trip_through_save_load() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let path = temp.path().join("config.json");
+        let config = AppConfig {
+            diff: DiffOverrides {
+                debounce_ms: Some(500),
+                inline_max_changed_ratio: Some(0.25),
+                alignment_band: Some(40),
+                ..DiffOverrides::default()
+            },
+            ..AppConfig::default()
+        };
+        save_config_to_path(&path, &config).expect("save");
+        let loaded = load_config_from_path(path).config;
+        assert_eq!(loaded.diff.debounce_ms, Some(500));
+        assert_eq!(loaded.diff.inline_max_changed_ratio, Some(0.25));
+        assert_eq!(loaded.diff.alignment_band, Some(40));
+    }
+
+    #[test]
+    fn out_of_range_overrides_are_dropped_on_load() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let path = temp.path().join("config.json");
+        fs::write(
+            &path,
+            r#"{
+                "version": 1, "width": 1120, "height": 760, "vertical_split": 0.45,
+                "theme": "System", "ui_font": "", "mono_font": "",
+                "diff": { "inline_max_changed_ratio": 1.5, "alignment_band": 0 }
+            }"#,
+        )
+        .expect("write");
+        let loaded = load_config_from_path(path).config;
+        assert_eq!(loaded.diff.inline_max_changed_ratio, None);
+        assert_eq!(loaded.diff.alignment_band, None);
     }
 }
