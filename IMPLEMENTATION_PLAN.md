@@ -71,23 +71,18 @@ Implementation note: if the current `fltk-rs` release rejects the exact Wayland 
 `diff_core`:
 
 ```rust
-pub const DEBOUNCE_MS: u64 = 300;
-pub const AUTO_DIFF_MAX_BYTES: usize = 256 * 1024;
-pub const AUTO_DIFF_MAX_LINES: usize = 8_000;
-pub const UNIFIED_CONTEXT_RADIUS: usize = 3;
+pub struct DiffOptions { /* debounce_ms, auto_diff_max_bytes, auto_diff_max_lines,
+                            unified_context_radius, inline_max_changed_ratio,
+                            display_full_context_max_lines, similarity_pairing_max_lines,
+                            alignment_band — all with Default impl */ }
+pub enum DiffOp { Context { text: String }, Delete { text: String },
+                  Insert { text: String }, Inline { segments: Vec<InlineDiffSegment> } }
+pub struct DisplayDiff { pub ops: Vec<DiffOp>, pub left_no_newline: bool,
+                         pub right_no_newline: bool }
 
-pub fn should_auto_diff(left: &str, right: &str) -> bool;
-pub fn build_unified_diff(left: &str, right: &str) -> String;
-pub fn classify_diff_line(line: &str) -> DiffLineKind;
-pub fn inline_changed_byte_ranges(delete_line: &str, insert_line: &str) -> Option<InlineDiffRanges>;
-
-pub enum DiffLineKind {
-    Header,
-    Hunk,
-    Insert,
-    Delete,
-    Context,
-}
+pub fn should_auto_diff(left: &str, right: &str, options: &DiffOptions) -> bool;
+pub fn build_display_diff(left: &str, right: &str, options: &DiffOptions) -> DisplayDiff;
+pub fn render_unified_diff(diff: &DisplayDiff) -> String;
 ```
 
 Diff output contract:
@@ -95,9 +90,9 @@ Diff output contract:
 | Case | Output |
 | --- | --- |
 | Equal text | Exactly `No differences\n` |
-| Changed text | Unified diff with `--- left`, `+++ right`, hunk headers, 3 context lines, and inline display for reliably matched replacement lines |
-| Newline policy | Output always ends with exactly one trailing newline |
-| Styling rule | `+++` and `---` are headers, `@@` is hunk, `+` is insert, `-` is delete, all else context |
+| Changed text (display) | Structured `Vec<DiffOp>` rendered with background colors via FLTK `StyleTableEntryExt`; no `@@` lines in display |
+| Changed text (copy) | Standard unified text via `render_unified_diff` from the same ops; includes `@@` hunk headers |
+| Newline policy | Display and copy output always end with exactly one trailing newline |
 
 `app_state`:
 
@@ -133,6 +128,7 @@ State rules:
 - Minimum window is 720x520.
 - `vertical_split` defaults to 0.45 and clamps to 0.30-0.70.
 - Theme enum is `System`, `Light`, or `Dark`; default is `System`.
+- `AppConfig.diff: DiffOverrides` carries optional overrides for every `DiffOptions` field; `sanitized()` clamps values before the bridge applies them.
 - Invalid or missing config returns defaults and reports status.
 - Save errors report status and never crash the app.
 

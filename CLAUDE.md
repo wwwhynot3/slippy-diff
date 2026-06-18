@@ -48,8 +48,8 @@ Results cross back to the UI thread through a single FLTK channel (`UiMessage::D
 
 - Equal text → exactly `No differences\n`.
 - Output always ends with exactly one trailing newline.
-- `classify_diff_line` maps line prefixes to `DiffLineKind`; the UI applies colors but keeps the raw `+`/`-`/`@@` prefixes so meaning is never color-only.
-- Replacement blocks pair similar deleted/inserted lines; matched pairs render inline, unmatched stay as plain `+`/`-` lines.
+- Display consumes `Vec<DiffOp>` directly; copy renders standard unified text via `render_unified_diff`.
+- Similarity-weighted banded alignment (fuzzy LCS); inline fragments get background colors via FLTK `StyleTableEntryExt` — no text brackets, no `@@` in display.
 
 ### Config & privacy
 
@@ -60,3 +60,4 @@ Layout/theme/font only, via the `directories` crate with app identity `dev.wwwhy
 - Modules are developed test-first; keep pure logic in `diff_core`/`app_state` so it stays unit-testable and push FLTK/clipboard concerns up into `ui_fltk`.
 - When an `fltk-rs` release changes the Wayland feature spelling, update only the feature mapping in `Cargo.toml` (`wayland = ["fltk/use-wayland"]`) — do not chase it in code.
 - Palette tokens and status-string tables live in `DESIGN.md` / `IMPLEMENTATION_PLAN.md`; keep code constants in sync with those tables rather than introducing ad-hoc colors or status text.
+- All diff thresholds/ratios live in `diff_core::DiffOptions::default()`; `config::DiffOverrides` carries optional overrides; `ui_fltk::diff_options_from_config` bridges them.
