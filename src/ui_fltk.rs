@@ -89,7 +89,6 @@ struct UiHandles {
     diff_style_buffer: TextBuffer,
     status: Frame,
     copy_diff: Button,
-    palette: Palette,
 }
 
 #[derive(Debug, Clone)]
@@ -200,7 +199,6 @@ pub fn run() -> Result<(), FltkError> {
         diff_style_buffer,
         status,
         copy_diff: copy_diff.clone(),
-        palette,
     }));
     render_state(&state, &handles);
 
@@ -553,14 +551,14 @@ fn render_state(state: &Rc<RefCell<AppState>>, handles: &Rc<RefCell<UiHandles>>)
     let mut copy_diff = handles.copy_diff.clone();
 
     let rendered = if state.has_stale_diff() {
-        let mut r = render_display_ops(state.diff(), state.options(), handles.palette);
-        r.text = format!(
-            "Previous diff is stale. Press Compare to update.\n\n{}",
-            r.text
-        );
-        r
+        let r = render_display_ops(state.diff(), state.options());
+        with_leading_notice(
+            r,
+            "Previous diff is stale. Press Compare to update.\n\n",
+            'G',
+        )
     } else {
-        render_display_ops(state.diff(), state.options(), handles.palette)
+        render_display_ops(state.diff(), state.options())
     };
     diff_buffer.set_text(&rendered.text);
     diff_style_buffer.set_text(&rendered.styles);
@@ -638,11 +636,23 @@ struct RenderedDiff {
     styles: String,
 }
 
-fn render_display_ops(
-    diff: &crate::diff_core::DisplayDiff,
-    options: &DiffOptions,
-    _palette: Palette,
-) -> RenderedDiff {
+/// Prepend a `notice` into both the text and style buffers of a `RenderedDiff`,
+/// applying the same `style` char to every byte of the notice. This preserves the
+/// FLTK ext-highlight invariant `text.len() == styles.len()` (style chars are
+/// resolved by byte index) when a leading banner is added — e.g. the stale-diff
+/// notice in `render_state`.
+fn with_leading_notice(mut rendered: RenderedDiff, notice: &str, style: char) -> RenderedDiff {
+    let mut text = String::with_capacity(notice.len() + rendered.text.len());
+    let mut styles = String::with_capacity(notice.len() + rendered.styles.len());
+    push_styled(&mut text, &mut styles, notice, style);
+    text.push_str(&rendered.text);
+    styles.push_str(&rendered.styles);
+    rendered.text = text;
+    rendered.styles = styles;
+    rendered
+}
+
+fn render_display_ops(diff: &crate::diff_core::DisplayDiff, options: &DiffOptions) -> RenderedDiff {
     let mut text = String::new();
     let mut styles = String::new();
 
@@ -810,13 +820,12 @@ mod tests {
     #[test]
     fn render_display_ops_colors_inline_fragments() {
         use crate::diff_core::{DiffOptions, build_display_diff};
-        let palette = palette_for(Theme::Light);
         let diff = build_display_diff(
             "i wanna eatt banana",
             "i wanna eat bananas",
             &DiffOptions::default(),
         );
-        let rendered = render_display_ops(&diff, &DiffOptions::default(), palette);
+        let rendered = render_display_ops(&diff, &DiffOptions::default());
 
         assert!(rendered.text.contains("i wanna eat"));
         assert_eq!(rendered.text.len(), rendered.styles.len());
@@ -836,9 +845,50 @@ mod tests {
     #[test]
     fn render_display_ops_shows_no_differences_marker() {
         use crate::diff_core::{DiffOptions, build_display_diff};
-        let palette = palette_for(Theme::Light);
         let diff = build_display_diff("same\n", "same\n", &DiffOptions::default());
-        let rendered = render_display_ops(&diff, &DiffOptions::default(), palette);
+        let rendered = render_display_ops(&diff, &DiffOptions::default());
         assert!(rendered.text.contains("No differences"));
+    }
+
+    /// Regression for the stale-diff path (Task 7 review, Fix 1):
+    /// prepending the stale-diff banner must keep `text.len() == styles.len()`,
+    /// otherwise FLTK's byte-indexed ext highlight resolves every style char
+    /// against the wrong offset.
+    #[test]
+    fn with_leading_notice_keeps_text_and_styles_aligned() {
+        use crate::diff_core::{DiffOptions, build_display_diff};
+        let diff = build_display_diff(
+            "i wanna eatt banana",
+            "i wanna eat bananas",
+            &DiffOptions::default(),
+        );
+        let rendered = render_display_ops(&diff, &DiffOptions::default());
+        // sanity: the base render is already aligned
+        assert_eq!(rendered.text.len(), rendered.styles.len());
+
+        let noticed = with_leading_notice(
+            rendered,
+            "Previous diff is stale. Press Compare to update.\n\n",
+            'G',
+        );
+        assert_eq!(noticed.text.len(), noticed.styles.len());
+        assert!(
+            noticed
+                .text
+                .starts_with("Previous diff is stale. Press Compare to update.\n\n"),
+            "notice must lead the text"
+        );
+        // every byte of the notice carries the chosen style char
+        let notice_len = "Previous diff is stale. Press Compare to update.\n\n".len();
+        let (head, tail) = noticed.styles.split_at(notice_len);
+        assert!(
+            head.chars().all(|c| c == 'G'),
+            "notice region must be uniformly styled 'G'"
+        );
+        assert!(!tail.is_empty(), "body styles must follow the notice");
+        assert!(
+            tail.contains('F'),
+            "body inline-insert style must survive the prepend"
+        );
     }
 }
