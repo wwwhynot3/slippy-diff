@@ -12,7 +12,7 @@ use fltk::{
     frame::Frame,
     group::{Flex, FlexType},
     prelude::*,
-    text::{StyleTableEntry, TextBuffer, TextDisplay, TextEditor},
+    text::{StyleTableEntryExt, TextAttr, TextBuffer, TextDisplay, TextEditor},
     window::Window,
 };
 
@@ -22,10 +22,7 @@ use crate::{
         AppConfig, ConfigLoadStatus, MIN_HEIGHT, MIN_WIDTH, Theme, config_path,
         load_config_from_path, save_config_to_path,
     },
-    diff_core::{
-        DiffLineKind, DiffOptions, InlineDiffSegmentKind, classify_diff_line, inline_diff_match,
-        render_unified_diff,
-    },
+    diff_core::{DiffOptions, render_unified_diff},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -39,10 +36,11 @@ struct Palette {
     primary_text: Color,
     insert_text: Color,
     delete_text: Color,
-    hunk_text: Color,
-    header_text: Color,
     status_bg: Color,
     secondary_button: Color,
+    insert_bg: Color,
+    delete_bg: Color,
+    header_bg: Color,
 }
 
 const ACTION_BAR_HEIGHT: i32 = 34;
@@ -91,6 +89,7 @@ struct UiHandles {
     diff_style_buffer: TextBuffer,
     status: Frame,
     copy_diff: Button,
+    palette: Palette,
 }
 
 #[derive(Debug, Clone)]
@@ -201,6 +200,7 @@ pub fn run() -> Result<(), FltkError> {
         diff_style_buffer,
         status,
         copy_diff: copy_diff.clone(),
+        palette,
     }));
     render_state(&state, &handles);
 
@@ -360,7 +360,7 @@ fn make_diff_display(palette: Palette) -> (TextDisplay, TextBuffer, TextBuffer) 
     display.set_text_size(14);
     display.set_color(palette.pane);
     display.set_frame(FrameType::BorderBox);
-    display.set_highlight_data(style_buffer.clone(), style_table(palette));
+    display.set_highlight_data_ext(style_buffer.clone(), style_table_ext(palette));
     (display, buffer, style_buffer)
 }
 
@@ -551,17 +551,19 @@ fn render_state(state: &Rc<RefCell<AppState>>, handles: &Rc<RefCell<UiHandles>>)
     let mut diff_style_buffer = handles.diff_style_buffer.clone();
     let mut status = handles.status.clone();
     let mut copy_diff = handles.copy_diff.clone();
-    let source_diff = if state.has_stale_diff() {
-        format!(
+
+    let rendered = if state.has_stale_diff() {
+        let mut r = render_display_ops(state.diff(), state.options(), handles.palette);
+        r.text = format!(
             "Previous diff is stale. Press Compare to update.\n\n{}",
-            render_unified_diff(state.diff())
-        )
+            r.text
+        );
+        r
     } else {
-        render_unified_diff(state.diff())
+        render_display_ops(state.diff(), state.options(), handles.palette)
     };
-    let rendered_diff = render_diff_display(&source_diff);
-    diff_buffer.set_text(&rendered_diff.text);
-    diff_style_buffer.set_text(&rendered_diff.styles);
+    diff_buffer.set_text(&rendered.text);
+    diff_style_buffer.set_text(&rendered.styles);
     status.set_label(state.status());
     if state.has_current_diff() {
         copy_diff.activate();
@@ -570,42 +572,63 @@ fn render_state(state: &Rc<RefCell<AppState>>, handles: &Rc<RefCell<UiHandles>>)
     }
 }
 
-fn style_table(palette: Palette) -> Vec<StyleTableEntry> {
+fn style_table_ext(palette: Palette) -> Vec<StyleTableEntryExt> {
     vec![
-        StyleTableEntry {
+        // 'A' normal / context
+        StyleTableEntryExt {
             color: palette.text,
             font: Font::Courier,
             size: 14,
+            attr: TextAttr::None,
+            bgcolor: palette.pane,
         },
-        StyleTableEntry {
-            color: palette.header_text,
+        // 'B' header (--- left / +++ right)
+        StyleTableEntryExt {
+            color: palette.muted,
             font: Font::Courier,
             size: 14,
+            attr: TextAttr::None,
+            bgcolor: palette.header_bg,
         },
-        StyleTableEntry {
-            color: palette.hunk_text,
-            font: Font::Courier,
-            size: 14,
-        },
-        StyleTableEntry {
+        // 'C' insert line
+        StyleTableEntryExt {
             color: palette.insert_text,
             font: Font::Courier,
             size: 14,
+            attr: TextAttr::None,
+            bgcolor: palette.insert_bg,
         },
-        StyleTableEntry {
+        // 'D' delete line
+        StyleTableEntryExt {
             color: palette.delete_text,
             font: Font::Courier,
             size: 14,
+            attr: TextAttr::None,
+            bgcolor: palette.delete_bg,
         },
-        StyleTableEntry {
-            color: palette.insert_text,
-            font: Font::CourierBold,
-            size: 14,
-        },
-        StyleTableEntry {
+        // 'E' inline delete fragment
+        StyleTableEntryExt {
             color: palette.delete_text,
             font: Font::CourierBold,
             size: 14,
+            attr: TextAttr::None,
+            bgcolor: palette.delete_bg,
+        },
+        // 'F' inline insert fragment
+        StyleTableEntryExt {
+            color: palette.insert_text,
+            font: Font::CourierBold,
+            size: 14,
+            attr: TextAttr::None,
+            bgcolor: palette.insert_bg,
+        },
+        // 'G' skipped-context marker
+        StyleTableEntryExt {
+            color: palette.muted,
+            font: Font::Courier,
+            size: 14,
+            attr: TextAttr::None,
+            bgcolor: palette.pane,
         },
     ]
 }
@@ -615,182 +638,109 @@ struct RenderedDiff {
     styles: String,
 }
 
-fn render_diff_display(diff: &str) -> RenderedDiff {
-    let mut text = String::with_capacity(diff.len());
-    let mut styles = String::with_capacity(diff.len());
-    let lines = diff.split_inclusive('\n').collect::<Vec<_>>();
-    let mut index = 0;
-    while index < lines.len() {
-        if is_change_block_start(&lines, index) {
-            let end = change_block_end(&lines, index);
-            push_change_block(&mut text, &mut styles, &lines[index..end]);
-            index = end;
-            continue;
-        }
+fn render_display_ops(
+    diff: &crate::diff_core::DisplayDiff,
+    options: &DiffOptions,
+    _palette: Palette,
+) -> RenderedDiff {
+    let mut text = String::new();
+    let mut styles = String::new();
 
-        let line = lines[index];
-        text.push_str(line);
-        styles.push_str(&plain_style_line(line));
-        index += 1;
+    if diff.ops.is_empty() {
+        push_styled(&mut text, &mut styles, "No differences\n", 'A');
+        return RenderedDiff { text, styles };
+    }
+
+    push_styled(&mut text, &mut styles, "--- left\n", 'B');
+    push_styled(&mut text, &mut styles, "+++ right\n", 'B');
+
+    let ops = fold_ops(&diff.ops, options);
+    for item in ops {
+        match item {
+            FoldItem::Op(crate::diff_core::DiffOp::Context { text: body }) => {
+                push_styled(&mut text, &mut styles, &body, 'A');
+                push_styled(&mut text, &mut styles, "\n", 'A');
+            }
+            FoldItem::Op(crate::diff_core::DiffOp::Delete { text: body }) => {
+                push_styled(&mut text, &mut styles, &body, 'D');
+                push_styled(&mut text, &mut styles, "\n", 'D');
+            }
+            FoldItem::Op(crate::diff_core::DiffOp::Insert { text: body }) => {
+                push_styled(&mut text, &mut styles, &body, 'C');
+                push_styled(&mut text, &mut styles, "\n", 'C');
+            }
+            FoldItem::Op(crate::diff_core::DiffOp::Inline { segments }) => {
+                use crate::diff_core::InlineDiffSegmentKind::*;
+                for s in segments {
+                    match s.kind {
+                        Equal => push_styled(&mut text, &mut styles, &s.text, 'A'),
+                        Delete => push_styled(&mut text, &mut styles, &s.text, 'E'),
+                        Insert => push_styled(&mut text, &mut styles, &s.text, 'F'),
+                    }
+                }
+                push_styled(&mut text, &mut styles, "\n", 'A');
+            }
+            FoldItem::Skipped(count) => {
+                push_styled(
+                    &mut text,
+                    &mut styles,
+                    &format!("⋯ {count} unchanged ⋯\n"),
+                    'G',
+                );
+            }
+        }
     }
 
     RenderedDiff { text, styles }
 }
 
-fn is_change_block_start(lines: &[&str], index: usize) -> bool {
-    let kind = classify_diff_line(lines[index].trim_end_matches('\n'));
-    if kind != DiffLineKind::Delete && kind != DiffLineKind::Insert {
-        return false;
-    }
-
-    let end = change_block_end(lines, index);
-    let has_delete = lines[index..end]
-        .iter()
-        .any(|line| classify_diff_line(line.trim_end_matches('\n')) == DiffLineKind::Delete);
-    let has_insert = lines[index..end]
-        .iter()
-        .any(|line| classify_diff_line(line.trim_end_matches('\n')) == DiffLineKind::Insert);
-    has_delete && has_insert
+enum FoldItem {
+    Op(crate::diff_core::DiffOp),
+    Skipped(usize),
 }
 
-fn change_block_end(lines: &[&str], start: usize) -> usize {
-    let mut end = start;
-    while end < lines.len() {
-        let kind = classify_diff_line(lines[end].trim_end_matches('\n'));
-        if kind != DiffLineKind::Delete && kind != DiffLineKind::Insert {
-            break;
+/// Adaptive folding: if the op count is within the threshold, show all ops;
+/// otherwise keep changes plus `radius` context and collapse the rest.
+fn fold_ops(ops: &[crate::diff_core::DiffOp], options: &DiffOptions) -> Vec<FoldItem> {
+    fn is_change(op: &crate::diff_core::DiffOp) -> bool {
+        !matches!(op, crate::diff_core::DiffOp::Context { .. })
+    }
+    if ops.len() <= options.display_full_context_max_lines {
+        return ops.iter().cloned().map(FoldItem::Op).collect();
+    }
+
+    let radius = options.unified_context_radius;
+    let mut keep = vec![false; ops.len()];
+    for (idx, op) in ops.iter().enumerate() {
+        if is_change(op) {
+            let lo = idx.saturating_sub(radius);
+            let hi = (idx + radius + 1).min(ops.len());
+            for k in lo..hi {
+                keep[k] = true;
+            }
         }
-        end += 1;
     }
-    end
-}
 
-fn push_change_block(text: &mut String, styles: &mut String, block: &[&str]) {
-    let deletes = block
-        .iter()
-        .filter(|line| classify_diff_line(line.trim_end_matches('\n')) == DiffLineKind::Delete)
-        .copied()
-        .collect::<Vec<_>>();
-    let inserts = block
-        .iter()
-        .filter(|line| classify_diff_line(line.trim_end_matches('\n')) == DiffLineKind::Insert)
-        .copied()
-        .collect::<Vec<_>>();
-    let pairs = best_inline_pairs(&deletes, &inserts);
-
-    for (delete_index, delete_line) in deletes.iter().enumerate() {
-        if let Some(inline) = pairs
-            .iter()
-            .find(|pair| pair.delete_index == delete_index)
-            .map(|pair| &pair.inline)
-        {
-            push_inline_replacement_line(text, styles, &inline.segments);
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < ops.len() {
+        if keep[i] {
+            out.push(FoldItem::Op(ops[i].clone()));
+            i += 1;
         } else {
-            push_diff_line(text, styles, delete_line);
-        }
-    }
-
-    for (insert_index, insert_line) in inserts.iter().enumerate() {
-        if pairs.iter().any(|pair| pair.insert_index == insert_index) {
-            continue;
-        }
-        push_diff_line(text, styles, insert_line);
-    }
-}
-
-#[derive(Debug)]
-struct InlinePair {
-    delete_index: usize,
-    insert_index: usize,
-    inline: crate::diff_core::InlineDiffMatch,
-}
-
-fn best_inline_pairs(deletes: &[&str], inserts: &[&str]) -> Vec<InlinePair> {
-    let mut candidates = Vec::new();
-    for (delete_index, delete_line) in deletes.iter().enumerate() {
-        for (insert_index, insert_line) in inserts.iter().enumerate() {
-            let delete_trimmed = delete_line.trim_end_matches('\n');
-            let insert_trimmed = insert_line.trim_end_matches('\n');
-            if let Some(inline) = inline_diff_match(delete_trimmed, insert_trimmed) {
-                candidates.push(InlinePair {
-                    delete_index,
-                    insert_index,
-                    inline,
-                });
+            let start = i;
+            while i < ops.len() && !keep[i] {
+                i += 1;
             }
+            out.push(FoldItem::Skipped(i - start));
         }
     }
-
-    candidates.sort_by(|left, right| {
-        left.inline
-            .changed_ratio
-            .total_cmp(&right.inline.changed_ratio)
-    });
-
-    let mut pairs = Vec::new();
-    for candidate in candidates {
-        if pairs
-            .iter()
-            .any(|pair: &InlinePair| pair.delete_index == candidate.delete_index)
-        {
-            continue;
-        }
-        if pairs
-            .iter()
-            .any(|pair: &InlinePair| pair.insert_index == candidate.insert_index)
-        {
-            continue;
-        }
-        pairs.push(candidate);
-    }
-
-    pairs.sort_by_key(|pair| pair.delete_index);
-    pairs
+    out
 }
 
-fn push_inline_replacement_line(
-    text: &mut String,
-    styles: &mut String,
-    segments: &[crate::diff_core::InlineDiffSegment],
-) {
-    push_styled_text(text, styles, "~ ", 'C');
-    for segment in segments {
-        match segment.kind {
-            InlineDiffSegmentKind::Equal => push_styled_text(text, styles, &segment.text, 'A'),
-            InlineDiffSegmentKind::Delete => {
-                push_styled_text(text, styles, "[-", 'E');
-                push_styled_text(text, styles, &segment.text, 'G');
-                push_styled_text(text, styles, "]", 'E');
-            }
-            InlineDiffSegmentKind::Insert => {
-                push_styled_text(text, styles, "[+", 'D');
-                push_styled_text(text, styles, &segment.text, 'F');
-                push_styled_text(text, styles, "]", 'D');
-            }
-        }
-    }
-    push_styled_text(text, styles, "\n", 'A');
-}
-
-fn push_diff_line(text: &mut String, styles: &mut String, line: &str) {
-    text.push_str(line);
-    styles.push_str(&plain_style_line(line));
-}
-
-fn push_styled_text(text: &mut String, styles: &mut String, value: &str, style: char) {
+fn push_styled(text: &mut String, styles: &mut String, value: &str, style: char) {
     text.push_str(value);
     styles.extend(std::iter::repeat_n(style, value.len()));
-}
-
-fn plain_style_line(line: &str) -> String {
-    let style = match classify_diff_line(line.trim_end_matches('\n')) {
-        DiffLineKind::Context => 'A',
-        DiffLineKind::Header => 'B',
-        DiffLineKind::Hunk => 'C',
-        DiffLineKind::Insert => 'D',
-        DiffLineKind::Delete => 'E',
-    };
-    std::iter::repeat_n(style, line.len()).collect()
 }
 
 fn input_flex_type(width: i32) -> FlexType {
@@ -819,10 +769,11 @@ fn palette_for(theme: Theme) -> Palette {
             primary_text: Color::White,
             insert_text: Color::from_rgb(31, 107, 58),
             delete_text: Color::from_rgb(154, 58, 37),
-            hunk_text: Color::from_rgb(66, 82, 107),
-            header_text: Color::from_rgb(110, 103, 94),
             status_bg: Color::from_rgb(239, 236, 228),
             secondary_button: Color::from_rgb(240, 238, 232),
+            insert_bg: Color::from_rgb(232, 244, 234), // #E8F4EA
+            delete_bg: Color::from_rgb(248, 231, 225), // #F8E7E1
+            header_bg: Color::from_rgb(240, 238, 232), // #F0EEE8
         },
         Theme::Dark => Palette {
             surface: Color::from_rgb(31, 33, 30),
@@ -834,10 +785,11 @@ fn palette_for(theme: Theme) -> Palette {
             primary_text: Color::from_rgb(16, 32, 34),
             insert_text: Color::from_rgb(168, 216, 178),
             delete_text: Color::from_rgb(240, 160, 138),
-            hunk_text: Color::from_rgb(183, 198, 230),
-            header_text: Color::from_rgb(166, 159, 145),
             status_bg: Color::from_rgb(37, 40, 32),
             secondary_button: Color::from_rgb(46, 49, 42),
+            insert_bg: Color::from_rgb(31, 58, 41), // #1F3A29
+            delete_bg: Color::from_rgb(68, 37, 31), // #44251F
+            header_bg: Color::from_rgb(46, 49, 42), // #2E312A
         },
     }
 }
@@ -856,50 +808,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn render_diff_display_compacts_reliable_single_line_replacements() {
-        let rendered = render_diff_display(
-            "--- left\n+++ right\n@@ -1 +1 @@\n-i wanna eat bananas\n+i wanna eat banana\n",
+    fn render_display_ops_colors_inline_fragments() {
+        use crate::diff_core::{DiffOptions, build_display_diff};
+        let palette = palette_for(Theme::Light);
+        let diff = build_display_diff(
+            "i wanna eatt banana",
+            "i wanna eat bananas",
+            &DiffOptions::default(),
         );
+        let rendered = render_display_ops(&diff, &DiffOptions::default(), palette);
 
-        assert_eq!(
-            rendered.text,
-            "--- left\n+++ right\n@@ -1 +1 @@\n~ i wanna eat banana[-s]\n"
-        );
+        assert!(rendered.text.contains("i wanna eat"));
         assert_eq!(rendered.text.len(), rendered.styles.len());
-        assert!(rendered.styles.contains('G'));
+        // 'E' = inline-delete-fragment bg style, 'F' = inline-insert-fragment bg style (see table below)
+        assert!(
+            rendered.styles.contains('E'),
+            "delete fragment must be styled"
+        );
+        assert!(
+            rendered.styles.contains('F'),
+            "insert fragment must be styled"
+        );
+        assert!(!rendered.text.contains("[-"), "no brackets in display");
+        assert!(!rendered.text.contains("@@"), "no hunk header in display");
     }
 
     #[test]
-    fn render_diff_display_pairs_replacements_inside_multi_line_change_blocks() {
-        let rendered = render_diff_display(
-            "--- left\n+++ right\n@@ -1,2 +1 @@\n-i wanna eat bananas\n-1\n+i wanna eaate banana\n",
-        );
-
-        assert_eq!(
-            rendered.text,
-            "--- left\n+++ right\n@@ -1,2 +1 @@\n~ i wanna ea[+a]t[+e] banana[-s]\n-1\n"
-        );
-        assert_eq!(rendered.text.len(), rendered.styles.len());
-        assert!(rendered.styles.contains('F'));
-        assert!(rendered.styles.contains('G'));
-    }
-
-    #[test]
-    fn render_diff_display_pairs_mid_sized_replacements_as_inline_lines() {
-        let rendered = render_diff_display("--- left\n+++ right\n@@ -1 +1 @@\n-fuck\n+fk\n");
-
-        assert!(rendered.text.contains("~ f[-uc]k\n"));
-        assert_eq!(rendered.text.len(), rendered.styles.len());
-        assert!(rendered.styles.contains('G'));
-    }
-
-    #[test]
-    fn render_diff_display_keeps_large_replacements_line_level() {
-        let rendered = render_diff_display("--- left\n+++ right\n@@ -1 +1 @@\n-abcdef\n+uvwxyz\n");
-
-        assert!(rendered.text.contains("-abcdef\n+uvwxyz\n"));
-        assert_eq!(rendered.text.len(), rendered.styles.len());
-        assert!(!rendered.styles.contains('F'));
-        assert!(!rendered.styles.contains('G'));
+    fn render_display_ops_shows_no_differences_marker() {
+        use crate::diff_core::{DiffOptions, build_display_diff};
+        let palette = palette_for(Theme::Light);
+        let diff = build_display_diff("same\n", "same\n", &DiffOptions::default());
+        let rendered = render_display_ops(&diff, &DiffOptions::default(), palette);
+        assert!(rendered.text.contains("No differences"));
     }
 }
