@@ -283,6 +283,169 @@ fn changed_ratio(old: &str, new: &str) -> f32 {
     (changed_old.max(changed_new) as f32) / (total as f32)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DisplayDiff {
+    pub ops: Vec<DiffOp>,
+    pub left_no_newline: bool,
+    pub right_no_newline: bool,
+}
+
+impl DisplayDiff {
+    /// Sentinel for "no differences" (left == right, including both empty).
+    pub fn no_changes(left: &str, right: &str) -> Self {
+        Self {
+            ops: Vec::new(),
+            left_no_newline: !left.is_empty() && !left.ends_with('\n'),
+            right_no_newline: !right.is_empty() && !right.ends_with('\n'),
+        }
+    }
+}
+
+pub fn build_display_diff(left: &str, right: &str, options: &DiffOptions) -> DisplayDiff {
+    let left_no_newline = !left.is_empty() && !left.ends_with('\n');
+    let right_no_newline = !right.is_empty() && !right.ends_with('\n');
+
+    if left == right {
+        return DisplayDiff {
+            ops: Vec::new(),
+            left_no_newline,
+            right_no_newline,
+        };
+    }
+
+    let left_lines: Vec<&str> = left.lines().collect();
+    let right_lines: Vec<&str> = right.lines().collect();
+
+    let ops = if left_lines.len().max(right_lines.len()) > options.similarity_pairing_max_lines {
+        exact_ops(left, right)
+    } else {
+        similarity_ops(&left_lines, &right_lines, options)
+    };
+
+    DisplayDiff {
+        ops,
+        left_no_newline,
+        right_no_newline,
+    }
+}
+
+fn exact_ops(left: &str, right: &str) -> Vec<DiffOp> {
+    let diff = TextDiff::from_lines(left, right);
+    let mut ops = Vec::new();
+    for change in diff.iter_all_changes() {
+        let text = change.to_string_lossy().trim_end_matches('\n').to_string();
+        match change.tag() {
+            ChangeTag::Equal => ops.push(DiffOp::Context { text }),
+            ChangeTag::Delete => ops.push(DiffOp::Delete { text }),
+            ChangeTag::Insert => ops.push(DiffOp::Insert { text }),
+        }
+    }
+    ops
+}
+
+fn similarity_ops(left: &[&str], right: &[&str], options: &DiffOptions) -> Vec<DiffOp> {
+    let n = left.len();
+    let m = right.len();
+    let w = m + 1;
+    let band = options.alignment_band;
+    let min_sim = 1.0 - options.inline_max_changed_ratio.clamp(0.0, 1.0) as f64;
+    let neg = f64::NEG_INFINITY;
+
+    let mut score = vec![neg; (n + 1) * w];
+    let mut from = vec![0u8; (n + 1) * w];
+    score[0] = 0.0;
+
+    let in_band = |i: usize, j: usize| (i as isize - j as isize).abs() <= band as isize;
+
+    for i in 0..=n {
+        for j in 0..=m {
+            if i == 0 && j == 0 {
+                continue;
+            }
+            let cur = i * w + j;
+            let mut best = neg;
+            let mut best_from = 1u8;
+
+            if i > 0 && j > 0 && in_band(i, j) {
+                let li = left[i - 1];
+                let rj = right[j - 1];
+                let sim = if li == rj {
+                    1.0
+                } else {
+                    1.0 - changed_ratio(li, rj) as f64
+                };
+                if sim >= min_sim {
+                    let s = score[(i - 1) * w + (j - 1)] + sim;
+                    if s > best {
+                        best = s;
+                        best_from = 0;
+                    }
+                }
+            }
+            if i > 0 {
+                let s = score[(i - 1) * w + j];
+                if s > best {
+                    best = s;
+                    best_from = 1;
+                }
+            }
+            if j > 0 {
+                let s = score[i * w + (j - 1)];
+                if s > best {
+                    best = s;
+                    best_from = 2;
+                }
+            }
+            score[cur] = best;
+            from[cur] = best_from;
+        }
+    }
+
+    let mut ops_rev: Vec<DiffOp> = Vec::new();
+    let mut i = n;
+    let mut j = m;
+    while i > 0 || j > 0 {
+        match from[i * w + j] {
+            0 if i > 0 && j > 0 => {
+                let li = left[i - 1];
+                let rj = right[j - 1];
+                if li == rj {
+                    ops_rev.push(DiffOp::Context {
+                        text: li.to_string(),
+                    });
+                } else {
+                    ops_rev.push(DiffOp::Inline {
+                        segments: char_level_segments(li, rj),
+                    });
+                }
+                i -= 1;
+                j -= 1;
+            }
+            1 if i > 0 => {
+                ops_rev.push(DiffOp::Delete {
+                    text: left[i - 1].to_string(),
+                });
+                i -= 1;
+            }
+            _ => {
+                if j > 0 {
+                    ops_rev.push(DiffOp::Insert {
+                        text: right[j - 1].to_string(),
+                    });
+                    j -= 1;
+                } else {
+                    ops_rev.push(DiffOp::Delete {
+                        text: left[i - 1].to_string(),
+                    });
+                    i -= 1;
+                }
+            }
+        }
+    }
+    ops_rev.reverse();
+    ops_rev
+}
+
 fn merge_adjacent_ranges(ranges: Vec<Range<usize>>) -> Vec<Range<usize>> {
     let mut merged = Vec::<Range<usize>>::new();
     for range in ranges {
@@ -566,5 +729,72 @@ mod tests {
         assert!(changed_ratio("i wanna eatt banana", "i wanna eat bananas") < 0.2);
         assert!((changed_ratio("abcdef", "uvwxyz") - 1.0).abs() < f32::EPSILON);
         assert!((changed_ratio("same", "same") - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn build_display_diff_returns_empty_for_equal_text() {
+        let d = build_display_diff("same\n", "same\n", &DiffOptions::default());
+        assert!(d.ops.is_empty());
+    }
+
+    #[test]
+    fn build_display_diff_pairs_similar_lines_over_duplicates() {
+        let left = "i wanna eatt banana\ni wanna eatt banana";
+        let right = "i wanna eat bananas\ni wanna eatt banana\ni，";
+        let d = build_display_diff(left, right, &DiffOptions::default());
+
+        assert_eq!(d.ops.len(), 3);
+        assert!(
+            matches!(d.ops[0], DiffOp::Inline { .. }),
+            "first op should be an inline pair"
+        );
+        assert_eq!(
+            d.ops[1],
+            DiffOp::Context {
+                text: "i wanna eatt banana".to_string()
+            }
+        );
+        assert_eq!(
+            d.ops[2],
+            DiffOp::Insert {
+                text: "i，".to_string()
+            }
+        );
+        if let DiffOp::Inline { segments } = &d.ops[0] {
+            assert_eq!(
+                *segments,
+                char_level_segments("i wanna eatt banana", "i wanna eat bananas")
+            );
+        } else {
+            panic!("expected inline op");
+        }
+    }
+
+    #[test]
+    fn build_display_diff_emits_pure_insert_and_delete() {
+        let ins = build_display_diff("a\n", "a\nb\n", &DiffOptions::default());
+        assert!(
+            ins.ops
+                .iter()
+                .any(|o| matches!(o, DiffOp::Insert { text } if text == "b"))
+        );
+
+        let del = build_display_diff("a\nb\n", "a\n", &DiffOptions::default());
+        assert!(
+            del.ops
+                .iter()
+                .any(|o| matches!(o, DiffOp::Delete { text } if text == "b"))
+        );
+    }
+
+    #[test]
+    fn build_display_diff_falls_back_to_exact_when_over_cap() {
+        let mut o = DiffOptions::default();
+        o.similarity_pairing_max_lines = 0; // force fallback
+        let d = build_display_diff("a\nb\nc", "a\nx\nc", &o);
+        assert!(
+            d.ops.iter().all(|op| !matches!(op, DiffOp::Inline { .. })),
+            "fallback must not inline-pair"
+        );
     }
 }
