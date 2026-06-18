@@ -76,6 +76,15 @@ pub struct InlineDiffMatch {
     pub changed_ratio: f32,
 }
 
+/// One rendered line of the structured diff. The UI consumes this directly.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DiffOp {
+    Context { text: String },
+    Delete { text: String },
+    Insert { text: String },
+    Inline { segments: Vec<InlineDiffSegment> },
+}
+
 #[derive(Debug, Clone, PartialEq)]
 struct InlineDiffAnalysis {
     delete_ranges: Vec<Range<usize>>,
@@ -239,6 +248,39 @@ fn push_inline_segment(
         kind,
         text: value.to_string(),
     });
+}
+
+fn char_level_segments(old: &str, new: &str) -> Vec<InlineDiffSegment> {
+    let diff = TextDiff::from_chars(old, new);
+    let mut segments = Vec::new();
+    for change in diff.iter_all_changes() {
+        let value = change.to_string_lossy();
+        let kind = match change.tag() {
+            ChangeTag::Equal => InlineDiffSegmentKind::Equal,
+            ChangeTag::Delete => InlineDiffSegmentKind::Delete,
+            ChangeTag::Insert => InlineDiffSegmentKind::Insert,
+        };
+        push_inline_segment(&mut segments, kind, &value);
+    }
+    segments
+}
+
+fn changed_ratio(old: &str, new: &str) -> f32 {
+    if old.is_empty() && new.is_empty() {
+        return 0.0;
+    }
+    let diff = TextDiff::from_chars(old, new);
+    let mut changed_old = 0usize;
+    let mut changed_new = 0usize;
+    for change in diff.iter_all_changes() {
+        match change.tag() {
+            ChangeTag::Delete => changed_old += change.to_string_lossy().chars().count(),
+            ChangeTag::Insert => changed_new += change.to_string_lossy().chars().count(),
+            ChangeTag::Equal => {}
+        }
+    }
+    let total = old.chars().count().max(new.chars().count()).max(1);
+    (changed_old.max(changed_new) as f32) / (total as f32)
 }
 
 fn merge_adjacent_ranges(ranges: Vec<Range<usize>>) -> Vec<Range<usize>> {
@@ -491,5 +533,38 @@ mod tests {
         assert_eq!(o.display_full_context_max_lines, 200);
         assert_eq!(o.similarity_pairing_max_lines, 1_000);
         assert_eq!(o.alignment_band, 25);
+    }
+
+    #[test]
+    fn char_level_segments_isolate_changed_characters() {
+        let segs = char_level_segments("i wanna eatt banana", "i wanna eat bananas");
+        assert_eq!(
+            segs,
+            vec![
+                InlineDiffSegment {
+                    kind: InlineDiffSegmentKind::Equal,
+                    text: "i wanna eat".to_string()
+                },
+                InlineDiffSegment {
+                    kind: InlineDiffSegmentKind::Delete,
+                    text: "t".to_string()
+                },
+                InlineDiffSegment {
+                    kind: InlineDiffSegmentKind::Equal,
+                    text: " banana".to_string()
+                },
+                InlineDiffSegment {
+                    kind: InlineDiffSegmentKind::Insert,
+                    text: "s".to_string()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn changed_ratio_measures_changed_fraction() {
+        assert!(changed_ratio("i wanna eatt banana", "i wanna eat bananas") < 0.2);
+        assert!((changed_ratio("abcdef", "uvwxyz") - 1.0).abs() < f32::EPSILON);
+        assert!((changed_ratio("same", "same") - 0.0).abs() < f32::EPSILON);
     }
 }
