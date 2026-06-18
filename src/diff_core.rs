@@ -539,4 +539,14 @@ mod tests {
         assert!(text.contains("-i wanna eatt banana\n"));
         assert!(text.contains("+i wanna eat bananas\n"));
     }
+
+    #[test]
+    fn fullwidth_comma_is_preserved_in_insert_op() {
+        let d = build_display_diff("a\n", "a\ni，\n", &DiffOptions::default());
+        let inserted = d.ops.iter().find_map(|op| match op {
+            DiffOp::Insert { text } if text.contains('i') => Some(text.clone()),
+            _ => None,
+        });
+        assert_eq!(inserted.as_deref(), Some("i，"));
+    }
 }
