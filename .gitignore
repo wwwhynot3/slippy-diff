@@ -1,1 +1,4 @@
 /target
+
+# local CodeGraph index + daemon cache
+.codegraph/
