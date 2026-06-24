@@ -1,5 +1,7 @@
 # Slippy TODOs
 
+Explicitly out-of-scope / deferred items. v1 functionality is complete; nothing here blocks normal use.
+
 ## Later UI
 
 - Add a settings UI for theme and font selection after config-only overrides prove useful.
@@ -25,6 +27,7 @@
 
 ## Later DX
 
-- Add screenshots to README after the first UI implementation exists.
+- Add screenshots to README (light + dark themes) — the UI exists, just needs capturing.
 - Add platform-specific troubleshooting only after failures are observed on that platform.
 - Add release checklist only after public packaging becomes scope.
+- Add a LICENSE once the project's distribution story is decided.

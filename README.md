@@ -1,55 +1,133 @@
 # Slippy
 
-Slippy is a lightweight desktop text diff tool for comparing two pasted text snippets.
-It is built for a paste-first workflow: paste left, paste right, compare, copy the unified diff, close the app.
+Slippy is a lightweight, native desktop text-diff tool for comparing two pasted snippets. It is built around a paste-first workflow: paste left, paste right, compare, copy the unified diff, close — and leave no background process behind.
 
-## Current Scope
+It aims for a quiet, trustworthy scratchpad feel: no daemons, no tray icon, no clipboard watcher, no file picker. Just two text panes and a diff.
 
-- Native desktop GUI using Rust and `fltk-rs`.
-- Two editable input panes.
-- Action bar between inputs and diff output.
-- Input and diff panes with line numbers.
-- Read-only unified diff output with line-level coloring and inline display for reliably matched replacements.
-- Clipboard paste/copy buttons.
-- Debounced auto-diff for normal-sized edits.
-- Manual Compare for large input.
-- No background daemon, tray app, clipboard watcher, or global shortcut listener.
-- No file or directory comparison in v1.
+Built with Rust and [`fltk-rs`](https://github.com/fltk-rs/fltk-rs).
 
-## Run
+## Features
 
+- **Two editable input panes** (left / right) with line numbers.
+- **Compact action bar**: Paste Left · Paste Right · Compare · Swap · Clear · Copy Diff.
+- **Read-only diff pane** with IntelliJ-style rendering:
+  - Line-level background colors for insertions and deletions.
+  - Inline fragment highlighting for matched replacement pairs — changed fragments are colored in place, with no `+`/`-` brackets cluttering the display.
+  - Similarity-weighted line alignment pairs similar deleted/inserted lines so replacements read naturally.
+  - Adaptive folding: large diffs collapse runs of unchanged context into a `⋯ N unchanged ⋯` marker instead of scrolling forever.
+- **Copy Diff** produces a standard unified diff (with `@@` hunks and `---`/`+++` headers) from the same model the display uses.
+- **Debounced auto-diff** (300 ms) for normal-sized edits.
+- **Manual Compare** for large input — combined size above 256 KiB or 8,000 lines skips auto-diff and asks you to compare explicitly.
+- **Themes**: System / Light / Dark (config-only).
+- **Status bar** reflecting the current state (ready, pending, running, updated, large-input notice, paste/copy failures).
+- **Privacy**: only UI metadata (window size, split, theme, fonts) is persisted. Pasted text and diff output are **never** stored to disk.
+
+## What v1 is not
+
+- No file or directory comparison — pasted text only.
+- No clipboard watcher or automatic clipboard read.
+- No background daemon, tray app, or global shortcut listener.
+- No built-in always-on-top behavior.
+- No side-by-side aligned diff view.
+- No theme/font settings UI (themes and fonts are config-only).
+- No public installers or app-store packaging.
+
+## Prerequisites
+
+Slippy bundles FLTK, but `fltk-rs` still needs a native C/C++ toolchain plus the usual X11 / OpenGL / Pango development libraries to build it.
+
+**Arch / CachyOS / Manjaro (pacman):**
 ```bash
-cargo run
+sudo pacman -S --needed base-devel cmake git pkgconf \
+  libx11 libxext libxft libxinerama libxcursor libxfixes libxrender \
+  mesa glu pango fontconfig glib2 alsa-lib
 ```
 
-## Test
-
+**Debian / Ubuntu (apt):**
 ```bash
-cargo test
+sudo apt install build-essential cmake git pkg-config \
+  libx11-dev libxext-dev libxft-dev libxinerama-dev libxcursor-dev libxfixes-dev libxrender-dev \
+  libgl1-mesa-dev libglu1-mesa-dev libpango1.0-dev libfontconfig1-dev libglib2.0-dev libasound2-dev
 ```
 
-## Wayland Build
+**Fedora (dnf):**
+```bash
+sudo dnf install gcc gcc-c++ cmake git pkgconfig \
+  libX11-devel libXext-devel libXft-devel libXinerama-devel libXcursor-devel libXfixes-devel libXrender-devel \
+  mesa-libGL-devel mesa-libGLU-devel pango-devel fontconfig-devel glib2-devel alsa-lib-devel
+```
 
-The default build uses bundled FLTK. Optional Wayland support is exposed as:
+**macOS:** `xcode-select --install` (Xcode Command Line Tools provide the toolchain).
+**Windows:** MSVC build tools (Visual Studio Build Tools) plus Git.
 
+Detailed Windows/macOS build docs and installers are **not** part of v1 scope. For the complete list, see the [`fltk-rs` dependency docs](https://github.com/fltk-rs/fltk-rs#dependencies).
+
+## Build & run
+
+```bash
+cargo run                 # run the app (default, bundled FLTK)
+cargo test                # run all tests
+cargo test diff_core      # run one module's tests
+cargo build --release     # release build
+```
+
+**Optional Wayland build:**
 ```bash
 cargo run --features wayland
 ```
+Wayland additionally needs `wayland`, `wayland-protocols`, and `libxkbcommon` (or the matching `-devel` packages). If an `fltk-rs` release changes the Wayland feature spelling, update only the feature mapping in `Cargo.toml` (`wayland = ["fltk/use-wayland"]`) — no code changes needed.
 
-If the active `fltk-rs` release changes the Wayland feature name, update only the feature mapping in `Cargo.toml`.
+## Troubleshooting (`fltk-sys` build errors)
 
-## Shortcuts
+`fltk-sys` compiles FLTK from source, so most first-time failures are missing native libraries:
 
-- `Ctrl/Cmd+Enter`: Compare
-- `Ctrl/Cmd+L`: Paste Left
-- `Ctrl/Cmd+R`: Paste Right
-- `Ctrl/Cmd+Shift+S`: Swap
-- `Ctrl/Cmd+Shift+C`: Copy Diff
+- `cmake: command not found` → install **cmake**.
+- `error: could not find X11` / missing `X11/Xlib.h` → install the **libx11** dev package.
+- Linker errors mentioning `GL` / `GLU` → install **mesa** / OpenGL dev packages.
+- `pkg-config` not found → install **pkg-config** (or **pkgconf**).
+- Pango / fontconfig errors → install the **pango** and **fontconfig** dev packages.
+- Wayland build fails on a feature-name error → adjust only the Cargo feature mapping (see above).
+
+## Keyboard shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl/Cmd+Enter` | Compare |
+| `Ctrl/Cmd+L` | Paste Left |
+| `Ctrl/Cmd+R` | Paste Right |
+| `Ctrl/Cmd+Shift+S` | Swap |
+| `Ctrl/Cmd+Shift+C` | Copy Diff |
 
 FLTK maps `Cmd` on macOS and `Ctrl` on Linux/Windows through `Shortcut::Command`.
 
-## Config
+## Config & privacy
 
-Slippy persists only UI metadata such as window size, split/theme/font fields, and never persists pasted input or diff output.
+Slippy stores only UI metadata through the OS config directory (app identity `dev.wwwhynot3.slippy`): window size, the input/diff split (default 0.45, clamped 0.30–0.70), theme, and font choices.
 
-Config is stored through the OS config directory using the app identity `dev.wwwhynot3.slippy` / `Slippy`.
+It **never** persists pasted text or diff output. Invalid or missing config falls back to defaults and reports a status message; save errors never crash the app.
+
+## Manual GUI smoke checklist
+
+- App opens and closes with no daemon, tray, or background process.
+- Paste Left / Paste Right target the correct pane; keyboard paste still works inside the editors.
+- Compare, Swap, Clear, and Copy Diff all work.
+- Debounced auto-diff updates shortly after normal edits.
+- Rapid edits never let a stale diff overwrite newer text.
+- Large input shows the "press Compare" status, and manual Compare updates the diff.
+- Insertion, deletion, and inline fragment colors are visible in both light and dark themes.
+- The action bar sits visually between the inputs and the diff.
+- The window stays usable when resized small (input panes stack below 760 px width).
+- Idle CPU returns near zero after debounce settles.
+
+## Architecture
+
+Slippy is deliberately layered, and the dependency rules between layers are the most important invariant to preserve:
+
+- **`diff_core`** — pure diff logic (`similar`-based, line classification, inline pairing, auto-diff thresholds). No FLTK, clipboard, config, or threading.
+- **`app_state`** — UI-independent state machine (text, dirty/stale flags, monotonic request ids, status transitions). No FLTK or clipboard.
+- **`ui_fltk`** — all FLTK widgets, styling/coloring, clipboard, worker threads, debounce timers, and shortcuts.
+- **`config`** — persists only layout/theme/font metadata (a privacy invariant, asserted in tests).
+
+Diffing runs on a fresh worker thread per request with **no cancellation** — correctness depends on ignoring stale results via monotonic request ids and a dirty-since-request flag, not on killing workers. `diff_core` and `app_state` are pure and fully unit-tested; `ui_fltk` is the integration boundary.
+
+See [`CLAUDE.md`](CLAUDE.md), [`DESIGN.md`](DESIGN.md), and [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) for the full product direction, behavioral contract, status tables, and test plan.
