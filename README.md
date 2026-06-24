@@ -57,7 +57,7 @@ sudo dnf install gcc gcc-c++ cmake git pkgconfig \
   mesa-libGL-devel mesa-libGLU-devel pango-devel fontconfig-devel glib2-devel alsa-lib-devel
 ```
 
-**macOS:** `xcode-select --install` (Xcode Command Line Tools provide the toolchain).
+**macOS:** `xcode-select --install` for the C/C++ toolchain, then `brew install cmake` (FLTK is built from source via CMake).
 **Windows:** MSVC build tools (Visual Studio Build Tools) plus Git.
 
 Detailed Windows/macOS build docs and installers are **not** part of v1 scope. For the complete list, see the [`fltk-rs` dependency docs](https://github.com/fltk-rs/fltk-rs#dependencies).
