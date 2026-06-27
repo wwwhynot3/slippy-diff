@@ -45,11 +45,20 @@ pub struct ChangeSummary {
 pub struct RenderedDiffView {
     pub rows: Vec<DiffViewRow>,
     pub summary: ChangeSummary,
+    pub left_no_newline: bool,
+    pub right_no_newline: bool,
 }
 
 enum FoldItem {
     Op(DiffOp),
     Skipped(usize),
+}
+
+fn normal_segment(text: impl Into<String>) -> DiffViewSegment {
+    DiffViewSegment {
+        kind: DiffViewSegmentKind::Normal,
+        text: text.into(),
+    }
 }
 
 pub fn build_diff_view(diff: &DisplayDiff, options: &DiffOptions) -> RenderedDiffView {
@@ -60,10 +69,7 @@ pub fn build_diff_view(diff: &DisplayDiff, options: &DiffOptions) -> RenderedDif
                 old_line: None,
                 new_line: None,
                 marker: "",
-                segments: vec![DiffViewSegment {
-                    kind: DiffViewSegmentKind::Normal,
-                    text: "No differences".to_string(),
-                }],
+                segments: vec![normal_segment("No differences")],
                 group_id: None,
             }],
             summary: ChangeSummary {
@@ -71,6 +77,8 @@ pub fn build_diff_view(diff: &DisplayDiff, options: &DiffOptions) -> RenderedDif
                 added: 0,
                 edited: 0,
             },
+            left_no_newline: diff.left_no_newline,
+            right_no_newline: diff.right_no_newline,
         };
     }
 
@@ -92,10 +100,7 @@ pub fn build_diff_view(diff: &DisplayDiff, options: &DiffOptions) -> RenderedDif
                     old_line: Some(old_line),
                     new_line: Some(new_line),
                     marker: "",
-                    segments: vec![DiffViewSegment {
-                        kind: DiffViewSegmentKind::Normal,
-                        text,
-                    }],
+                    segments: vec![normal_segment(text)],
                     group_id: None,
                 });
                 old_line += 1;
@@ -107,10 +112,7 @@ pub fn build_diff_view(diff: &DisplayDiff, options: &DiffOptions) -> RenderedDif
                     old_line: Some(old_line),
                     new_line: None,
                     marker: "-",
-                    segments: vec![DiffViewSegment {
-                        kind: DiffViewSegmentKind::Normal,
-                        text,
-                    }],
+                    segments: vec![normal_segment(text)],
                     group_id: None,
                 });
                 old_line += 1;
@@ -122,10 +124,7 @@ pub fn build_diff_view(diff: &DisplayDiff, options: &DiffOptions) -> RenderedDif
                     old_line: None,
                     new_line: Some(new_line),
                     marker: "+",
-                    segments: vec![DiffViewSegment {
-                        kind: DiffViewSegmentKind::Normal,
-                        text,
-                    }],
+                    segments: vec![normal_segment(text)],
                     group_id: None,
                 });
                 new_line += 1;
@@ -141,14 +140,8 @@ pub fn build_diff_view(diff: &DisplayDiff, options: &DiffOptions) -> RenderedDif
                 for segment in segments {
                     match segment.kind {
                         InlineDiffSegmentKind::Equal => {
-                            old_segments.push(DiffViewSegment {
-                                kind: DiffViewSegmentKind::Normal,
-                                text: segment.text.clone(),
-                            });
-                            new_segments.push(DiffViewSegment {
-                                kind: DiffViewSegmentKind::Normal,
-                                text: segment.text,
-                            });
+                            old_segments.push(normal_segment(segment.text.clone()));
+                            new_segments.push(normal_segment(segment.text));
                         }
                         InlineDiffSegmentKind::Delete => {
                             old_segments.push(DiffViewSegment {
@@ -192,10 +185,7 @@ pub fn build_diff_view(diff: &DisplayDiff, options: &DiffOptions) -> RenderedDif
                     old_line: None,
                     new_line: None,
                     marker: "",
-                    segments: vec![DiffViewSegment {
-                        kind: DiffViewSegmentKind::Normal,
-                        text: format!("... {count} unchanged lines ..."),
-                    }],
+                    segments: vec![normal_segment(format!("... {count} unchanged lines ..."))],
                     group_id: None,
                 });
                 old_line += count;
@@ -204,7 +194,12 @@ pub fn build_diff_view(diff: &DisplayDiff, options: &DiffOptions) -> RenderedDif
         }
     }
 
-    RenderedDiffView { rows, summary }
+    RenderedDiffView {
+        rows,
+        summary,
+        left_no_newline: diff.left_no_newline,
+        right_no_newline: diff.right_no_newline,
+    }
 }
 
 fn fold_ops(ops: &[DiffOp], options: &DiffOptions) -> Vec<FoldItem> {
@@ -258,7 +253,7 @@ mod tests {
 
     #[test]
     fn equal_text_produces_no_differences_notice() {
-        let diff = build_display_diff("same\n", "same\n", &DiffOptions::default());
+        let diff = build_display_diff("same", "same", &DiffOptions::default());
 
         let rendered = build_diff_view(&diff, &DiffOptions::default());
 
@@ -281,6 +276,8 @@ mod tests {
                     added: 0,
                     edited: 0,
                 },
+                left_no_newline: true,
+                right_no_newline: true,
             }
         );
     }
@@ -402,5 +399,45 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn rendered_view_preserves_no_newline_metadata_for_changed_text() {
+        let diff = build_display_diff("left", "right", &DiffOptions::default());
+
+        let rendered = build_diff_view(&diff, &DiffOptions::default());
+
+        assert!(rendered.left_no_newline);
+        assert!(rendered.right_no_newline);
+    }
+
+    #[test]
+    fn folding_uses_context_limits_and_preserves_line_numbers_after_skips() {
+        let options = DiffOptions {
+            display_full_context_max_lines: 3,
+            unified_context_radius: 1,
+            ..DiffOptions::default()
+        };
+        let diff = build_display_diff(
+            "a\nb\nc\nd\ne\nf\ng\n",
+            "a\nb\nX\nd\ne\nf\ng\n",
+            &options,
+        );
+
+        let rendered = build_diff_view(&diff, &options);
+
+        let fold_index = rendered
+            .rows
+            .iter()
+            .position(|row| row.kind == DiffViewRowKind::Fold)
+            .expect("expected at least one fold row");
+
+        assert_eq!(text(&rendered.rows[fold_index]), "... 1 unchanged lines ...");
+
+        let row_after_fold = &rendered.rows[fold_index + 1];
+        assert_eq!(row_after_fold.kind, DiffViewRowKind::Context);
+        assert_eq!(row_after_fold.old_line, Some(2));
+        assert_eq!(row_after_fold.new_line, Some(2));
+        assert_eq!(text(row_after_fold), "b");
     }
 }
