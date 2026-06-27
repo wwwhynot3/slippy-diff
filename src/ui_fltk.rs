@@ -44,6 +44,8 @@ struct Palette {
 }
 
 const ACTION_BAR_HEIGHT: i32 = 34;
+const DIFF_TOOLBAR_HEIGHT: i32 = 32;
+const OVERVIEW_RAIL_WIDTH: i32 = 14;
 const STATUS_BAR_HEIGHT: i32 = 26;
 const ROOT_MARGIN: i32 = 8;
 const ROOT_PAD: i32 = 8;
@@ -87,6 +89,8 @@ struct UiHandles {
     right_buffer: TextBuffer,
     diff_buffer: TextBuffer,
     diff_style_buffer: TextBuffer,
+    diff_summary: Frame,
+    overview_rail: Frame,
     status: Frame,
     copy_diff: Button,
 }
@@ -157,7 +161,38 @@ pub fn run() -> Result<(), FltkError> {
     copy_diff.set_shortcut(Shortcut::Command | Shortcut::Shift | 'c');
     actions.end();
 
+    let mut diff_container = Flex::default().column();
+    let mut diff_toolbar = Flex::default().row();
+    diff_toolbar.set_pad(6);
+    let mut diff_mode = Frame::default().with_label("Unified Review");
+    diff_mode.set_frame(FrameType::FlatBox);
+    diff_mode.set_color(palette.header_bg);
+    diff_mode.set_label_color(palette.text);
+    diff_mode.set_label_size(13);
+    let mut prev_change = make_button("Prev", false, palette);
+    let mut next_change = make_button("Next", false, palette);
+    let mut diff_summary = Frame::default().with_label("0 removed  0 added  0 edited");
+    diff_summary.set_frame(FrameType::FlatBox);
+    diff_summary.set_color(palette.header_bg);
+    diff_summary.set_label_color(palette.muted);
+    diff_summary.set_label_size(13);
+    diff_summary.set_align(fltk::enums::Align::Right | fltk::enums::Align::Inside);
+    diff_toolbar.fixed(&diff_mode, 120);
+    diff_toolbar.fixed(&prev_change, 58);
+    diff_toolbar.fixed(&next_change, 58);
+    diff_toolbar.end();
+
+    let mut diff_body = Flex::default().row();
     let (mut diff_display, diff_buffer, diff_style_buffer) = make_diff_display(palette);
+    let mut overview_rail = Frame::default();
+    overview_rail.set_frame(FrameType::FlatBox);
+    overview_rail.set_color(palette.header_bg);
+    diff_body.fixed(&overview_rail, OVERVIEW_RAIL_WIDTH);
+    diff_body.end();
+
+    diff_container.fixed(&diff_toolbar, DIFF_TOOLBAR_HEIGHT);
+    diff_container.end();
+
     let mut status = Frame::default().with_label(state.borrow().status());
     status.set_frame(FrameType::FlatBox);
     status.set_color(palette.status_bg);
@@ -197,6 +232,8 @@ pub fn run() -> Result<(), FltkError> {
         right_buffer,
         diff_buffer,
         diff_style_buffer,
+        diff_summary,
+        overview_rail,
         status,
         copy_diff: copy_diff.clone(),
     }));
@@ -547,6 +584,8 @@ fn render_state(state: &Rc<RefCell<AppState>>, handles: &Rc<RefCell<UiHandles>>)
     let handles = handles.borrow();
     let mut diff_buffer = handles.diff_buffer.clone();
     let mut diff_style_buffer = handles.diff_style_buffer.clone();
+    let mut diff_summary = handles.diff_summary.clone();
+    let mut overview_rail = handles.overview_rail.clone();
     let mut status = handles.status.clone();
     let mut copy_diff = handles.copy_diff.clone();
 
@@ -562,6 +601,8 @@ fn render_state(state: &Rc<RefCell<AppState>>, handles: &Rc<RefCell<UiHandles>>)
     };
     diff_buffer.set_text(&rendered.text);
     diff_style_buffer.set_text(&rendered.styles);
+    diff_summary.set_label(&diff_summary_label(&view.summary));
+    overview_rail.redraw();
     status.set_label(state.status());
     if state.has_current_diff() {
         copy_diff.activate();
@@ -580,7 +621,7 @@ fn style_table_ext(palette: Palette) -> Vec<StyleTableEntryExt> {
             attr: TextAttr::None,
             bgcolor: palette.pane,
         },
-        // 'B' header (--- left / +++ right)
+        // 'B' generic header
         StyleTableEntryExt {
             color: palette.muted,
             font: Font::Courier,
@@ -620,7 +661,7 @@ fn style_table_ext(palette: Palette) -> Vec<StyleTableEntryExt> {
             attr: TextAttr::None,
             bgcolor: palette.insert_bg,
         },
-        // 'G' skipped-context marker
+        // 'G' fold / notice / stale notice
         StyleTableEntryExt {
             color: palette.muted,
             font: Font::Courier,
@@ -666,6 +707,13 @@ fn with_leading_notice(mut rendered: RenderedDiff, notice: &str, style: char) ->
     rendered.text = text;
     rendered.styles = styles;
     rendered
+}
+
+fn diff_summary_label(summary: &crate::diff_view::ChangeSummary) -> String {
+    format!(
+        "{} removed  {} added  {} edited",
+        summary.removed, summary.added, summary.edited
+    )
 }
 
 fn render_diff_view_text(view: &crate::diff_view::RenderedDiffView) -> RenderedDiff {
@@ -873,6 +921,20 @@ mod tests {
         assert!(
             tail.contains('F'),
             "body inline-insert style must survive the prepend"
+        );
+    }
+
+    #[test]
+    fn diff_summary_label_formats_counts() {
+        let summary = crate::diff_view::ChangeSummary {
+            removed: 2,
+            added: 3,
+            edited: 1,
+        };
+
+        assert_eq!(
+            diff_summary_label(&summary),
+            "2 removed  3 added  1 edited"
         );
     }
 }
