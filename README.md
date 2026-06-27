@@ -8,15 +8,16 @@ Built with Rust and [`fltk-rs`](https://github.com/fltk-rs/fltk-rs).
 
 ## Features
 
-- **Two editable input panes** (left / right) with line numbers.
+- **Two editable input panes** (left / right) with custom line-number gutters.
 - **Compact action bar**: Paste Left · Paste Right · Compare · Swap · Clear · Copy Diff.
-- **Read-only unified review diff pane** with IntelliJ-inspired rendering:
+- **Read-only unified review diff pane** with a custom-drawn IntelliJ-inspired canvas:
   - Semantic old/new line-number gutters, so inserted rows have no old line number and deleted rows have no new line number.
   - Soft row coloring for pure insertions/deletions.
   - Neutral replacement blocks for paired edits, with red/green token highlights for the exact changed fragments.
   - A compact change overview rail showing where edits occur in the rendered diff.
   - Adaptive folding: large diffs collapse runs of unchanged context into a `... N unchanged lines ...` marker instead of scrolling forever.
 - **Copy Diff** copies standard unified diff text (with `@@` hunks and `---`/`+++` headers) from the same computed diff the display derives from.
+- **Pin toggle** keeps the window above other windows where the native window manager supports FLTK's topmost request.
 - **Debounced auto-diff** (300 ms) for normal-sized edits.
 - **Manual Compare** for large input — combined size above 256 KiB or 8,000 lines skips auto-diff and asks you to compare explicitly.
 - **Themes**: System / Light / Dark (config-only).
@@ -28,7 +29,6 @@ Built with Rust and [`fltk-rs`](https://github.com/fltk-rs/fltk-rs).
 - No file or directory comparison — pasted text only.
 - No clipboard watcher or automatic clipboard read.
 - No background daemon, tray app, or global shortcut listener.
-- No built-in always-on-top behavior.
 - No side-by-side aligned diff view.
 - No theme/font settings UI (themes and fonts are config-only).
 - No public installers or app-store packaging.
@@ -98,6 +98,7 @@ Wayland additionally needs `wayland`, `wayland-protocols`, and `libxkbcommon` (o
 | `Ctrl/Cmd+R` | Paste Right |
 | `Ctrl/Cmd+Shift+S` | Swap |
 | `Ctrl/Cmd+Shift+C` | Copy Diff |
+| `Ctrl/Cmd+Shift+P` | Toggle Pin |
 
 FLTK maps `Cmd` on macOS and `Ctrl` on Linux/Windows through `Shortcut::Command`.
 
@@ -116,6 +117,8 @@ It **never** persists pasted text or diff output. Invalid or missing config fall
 - Rapid edits never let a stale diff overwrite newer text.
 - Large input shows the "press Compare" status, and manual Compare updates the diff.
 - Insertion, deletion, and inline fragment colors are visible in both light and dark themes.
+- The custom input gutters track visible line numbers while editing and scrolling.
+- The Pin button changes to `Pinned` and reports topmost status when toggled.
 - The action bar sits visually between the inputs and the diff.
 - The window stays usable when resized small (input panes stack below 760 px width).
 - Idle CPU returns near zero after debounce settles.

@@ -13,6 +13,7 @@ Primary layout:
 ```text
 [ Left Input 50% ][ Right Input 50% ]
 [ Paste Left | Paste Right | Compare | Swap | Clear | Copy Diff ]
+[ Unified Review | Prev | Next | Pin | Summary ]
 [ Read-only Unified Diff Result ]
 [ Bottom Status Bar ]
 ```
@@ -57,6 +58,7 @@ Shortcuts:
 - `Ctrl/Cmd+R`: Paste Right
 - `Ctrl/Cmd+Shift+S`: Swap
 - `Ctrl/Cmd+Shift+C`: Copy Diff
+- `Ctrl/Cmd+Shift+P`: Toggle Pin
 
 Use Cmd on macOS where FLTK supports it and Ctrl elsewhere. If FLTK cannot map Cmd cleanly, keep Ctrl working and document the limitation.
 
@@ -72,15 +74,15 @@ Theme support:
 
 Line-level diff coloring is required:
 
-- The diff result uses a unified review layout with old/new line-number gutters, a marker column, rendered text, and a narrow change overview rail.
+- The diff result uses a custom-drawn unified review canvas with old/new line-number gutters, a marker column, rendered text, and a narrow change overview rail.
 - `+` insertion rows use soft insert colors; `-` deletion rows use soft delete colors.
-- Input panes show line numbers.
+- Input panes keep FLTK `TextEditor` behavior for editing, selection, clipboard, undo, and IME, but use custom-drawn line-number gutters beside the editors.
 - Replacement blocks pair similar deleted and inserted lines before rendering; paired rows use a neutral block background with `~` markers and stronger red/green token highlights for the exact changed fragments.
 - The old/new gutters are semantic references: inserted rows leave the old line blank, deleted rows leave the new line blank, and later context rows may show offset line numbers.
 - The rendered review header shows `OLD  NEW  K | Text` above the diff rows, with a separator beneath it.
 - `---` and `+++` header lines are part of the plain unified diff text emitted by Copy Diff.
-- Preserve text prefixes so the diff remains understandable even if styling fails.
-- An entirely uncolored diff is a defect unless FLTK styling is proven impossible during build verification.
+- Preserve visible marker and line-number gutters so the diff remains understandable even if colors are hard to distinguish.
+- An entirely uncolored or blank rendered diff is a defect unless FLTK drawing is proven impossible during build verification.
 - Adaptive folding: show all lines when the op count does not exceed `display_full_context_max_lines`; beyond that, display context lines within `unified_context_radius` with a `... N unchanged lines ...` marker.
 - All diff thresholds/ratios are configurable with defaults.
 
@@ -97,6 +99,8 @@ Color tokens:
 | Primary text | `#FFFFFF` | `#102022` |
 | Insert bg/text | `#E8F4EA` / `#1F6B3A` | `#1F3A29` / `#A8D8B2` |
 | Delete bg/text | `#F8E7E1` / `#9A3A25` | `#44251F` / `#F0A08A` |
+| Replace bg/text | `#F5F1E0` / `#443E30` | `#373426` / `#E6DDC5` |
+| Inline insert/delete bg | `#C4E7CF` / `#EFC7BB` | `#31573B` / `#5B3026` |
 | Hunk bg/text | `#E9EDF5` / `#42526B` | `#263245` / `#B7C6E6` |
 | Header bg | `#F0EEE8` | `#2E312A` |
 | Selection | `#C8D8D9` | `#36565A` |
@@ -124,6 +128,8 @@ Density:
 | Copy failure | Preserve diff | `Copy Diff failed: clipboard unavailable.` |
 | Config load invalid | Use defaults | `Config invalid; using defaults.` |
 | Config save failure | Keep app running | `Could not save layout config.` |
+| Pin enabled | Preserve current diff | `Pinned above other windows.` |
+| Pin disabled | Preserve current diff | `Pin cleared. Some window managers keep native topmost until refocus.` |
 
 ## Accessibility Basics
 
@@ -133,13 +139,13 @@ Density:
 - Visible keyboard focus is required.
 - Keyboard shortcuts are documented in README.
 - Diff meaning is not color-only because visible row markers remain present even without color.
+- Pin is a text button rather than a custom titlebar control; native minimize, maximize, close, drag, and resize remain owned by the OS window manager.
 
 ## Not In Scope
 
 - File or directory comparison.
 - Clipboard watcher or automatic clipboard read.
 - Background daemon, tray app, or global shortcut listener.
-- Built-in always-on-top behavior.
 - Side-by-side aligned diff view.
 - Theme/font settings UI.
 - Public-grade installers or app store packaging.
