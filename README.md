@@ -16,7 +16,7 @@ Built with Rust and [`fltk-rs`](https://github.com/fltk-rs/fltk-rs).
   - Neutral replacement blocks for paired edits, with red/green token highlights for the exact changed fragments.
   - A compact change overview rail showing where edits occur in the rendered diff.
   - Adaptive folding: large diffs collapse runs of unchanged context into a `... N unchanged lines ...` marker instead of scrolling forever.
-- **Copy Diff** copies standard unified diff text (with `@@` hunks and `---`/`+++` headers) from the same model the display uses.
+- **Copy Diff** copies standard unified diff text (with `@@` hunks and `---`/`+++` headers) from the same computed diff the display derives from.
 - **Debounced auto-diff** (300 ms) for normal-sized edits.
 - **Manual Compare** for large input — combined size above 256 KiB or 8,000 lines skips auto-diff and asks you to compare explicitly.
 - **Themes**: System / Light / Dark (config-only).

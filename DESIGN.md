@@ -77,7 +77,8 @@ Line-level diff coloring is required:
 - Input panes show line numbers.
 - Replacement blocks pair similar deleted and inserted lines before rendering; paired rows use a neutral block background with `~` markers and stronger red/green token highlights for the exact changed fragments.
 - The old/new gutters are semantic references: inserted rows leave the old line blank, deleted rows leave the new line blank, and later context rows may show offset line numbers.
-- `---` and `+++` header lines use header styling.
+- The rendered review header shows `OLD  NEW  K | Text` above the diff rows, with a separator beneath it.
+- `---` and `+++` header lines are part of the plain unified diff text emitted by Copy Diff.
 - Preserve text prefixes so the diff remains understandable even if styling fails.
 - An entirely uncolored diff is a defect unless FLTK styling is proven impossible during build verification.
 - Adaptive folding: show all lines when the op count does not exceed `display_full_context_max_lines`; beyond that, display context lines within `unified_context_radius` with a `... N unchanged lines ...` marker.
@@ -131,7 +132,7 @@ Density:
 - Buttons use text labels, not icon-only controls.
 - Visible keyboard focus is required.
 - Keyboard shortcuts are documented in README.
-- Diff meaning is not color-only because unified diff prefixes remain visible.
+- Diff meaning is not color-only because visible row markers remain present even without color.
 
 ## Not In Scope
 
