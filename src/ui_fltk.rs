@@ -353,7 +353,7 @@ fn make_diff_display(palette: Palette) -> (TextDisplay, TextBuffer, TextBuffer) 
     let buffer = TextBuffer::default();
     let style_buffer = TextBuffer::default();
     display.set_buffer(buffer.clone());
-    configure_line_numbers(&mut display, palette);
+    display.set_linenumber_width(0);
     display.set_text_font(Font::Courier);
     display.set_text_size(14);
     display.set_color(palette.pane);
@@ -550,15 +550,15 @@ fn render_state(state: &Rc<RefCell<AppState>>, handles: &Rc<RefCell<UiHandles>>)
     let mut status = handles.status.clone();
     let mut copy_diff = handles.copy_diff.clone();
 
+    let view = crate::diff_view::build_diff_view(state.diff(), state.options());
     let rendered = if state.has_stale_diff() {
-        let r = render_display_ops(state.diff(), state.options());
         with_leading_notice(
-            r,
+            render_diff_view_text(&view),
             "Previous diff is stale. Press Compare to update.\n\n",
             'G',
         )
     } else {
-        render_display_ops(state.diff(), state.options())
+        render_diff_view_text(&view)
     };
     diff_buffer.set_text(&rendered.text);
     diff_style_buffer.set_text(&rendered.styles);
@@ -628,6 +628,22 @@ fn style_table_ext(palette: Palette) -> Vec<StyleTableEntryExt> {
             attr: TextAttr::None,
             bgcolor: palette.pane,
         },
+        // 'H' neutral replacement line
+        StyleTableEntryExt {
+            color: palette.text,
+            font: Font::Courier,
+            size: 14,
+            attr: TextAttr::None,
+            bgcolor: palette.header_bg,
+        },
+        // 'I' semantic gutter / marker
+        StyleTableEntryExt {
+            color: palette.muted,
+            font: Font::Courier,
+            size: 14,
+            attr: TextAttr::None,
+            bgcolor: palette.header_bg,
+        },
     ]
 }
 
@@ -652,100 +668,58 @@ fn with_leading_notice(mut rendered: RenderedDiff, notice: &str, style: char) ->
     rendered
 }
 
-fn render_display_ops(diff: &crate::diff_core::DisplayDiff, options: &DiffOptions) -> RenderedDiff {
+fn render_diff_view_text(view: &crate::diff_view::RenderedDiffView) -> RenderedDiff {
     let mut text = String::new();
     let mut styles = String::new();
 
-    if diff.ops.is_empty() {
-        push_styled(&mut text, &mut styles, "No differences\n", 'A');
-        return RenderedDiff { text, styles };
-    }
+    push_styled(&mut text, &mut styles, "OLD  NEW  K | Text\n", 'B');
+    push_styled(&mut text, &mut styles, "---------------\n", 'B');
 
-    push_styled(&mut text, &mut styles, "--- left\n", 'B');
-    push_styled(&mut text, &mut styles, "+++ right\n", 'B');
+    for row in &view.rows {
+        let row_style = match row.kind {
+            crate::diff_view::DiffViewRowKind::Context => 'A',
+            crate::diff_view::DiffViewRowKind::Delete => 'D',
+            crate::diff_view::DiffViewRowKind::Insert => 'C',
+            crate::diff_view::DiffViewRowKind::ReplaceOld
+            | crate::diff_view::DiffViewRowKind::ReplaceNew => 'H',
+            crate::diff_view::DiffViewRowKind::Fold | crate::diff_view::DiffViewRowKind::Notice => {
+                'G'
+            }
+        };
 
-    let ops = fold_ops(&diff.ops, options);
-    for item in ops {
-        match item {
-            FoldItem::Op(crate::diff_core::DiffOp::Context { text: body }) => {
-                push_styled(&mut text, &mut styles, &body, 'A');
-                push_styled(&mut text, &mut styles, "\n", 'A');
-            }
-            FoldItem::Op(crate::diff_core::DiffOp::Delete { text: body }) => {
-                push_styled(&mut text, &mut styles, &body, 'D');
-                push_styled(&mut text, &mut styles, "\n", 'D');
-            }
-            FoldItem::Op(crate::diff_core::DiffOp::Insert { text: body }) => {
-                push_styled(&mut text, &mut styles, &body, 'C');
-                push_styled(&mut text, &mut styles, "\n", 'C');
-            }
-            FoldItem::Op(crate::diff_core::DiffOp::Inline { segments }) => {
-                use crate::diff_core::InlineDiffSegmentKind::*;
-                for s in segments {
-                    match s.kind {
-                        Equal => push_styled(&mut text, &mut styles, &s.text, 'A'),
-                        Delete => push_styled(&mut text, &mut styles, &s.text, 'E'),
-                        Insert => push_styled(&mut text, &mut styles, &s.text, 'F'),
-                    }
-                }
-                push_styled(&mut text, &mut styles, "\n", 'A');
-            }
-            FoldItem::Skipped(count) => {
-                push_styled(
-                    &mut text,
-                    &mut styles,
-                    &format!("⋯ {count} unchanged ⋯\n"),
-                    'G',
-                );
-            }
+        let old_no = format_line_no(row.old_line);
+        let new_no = format_line_no(row.new_line);
+        push_styled(&mut text, &mut styles, &old_no, 'I');
+        push_styled(&mut text, &mut styles, " | ", 'I');
+        push_styled(&mut text, &mut styles, &new_no, 'I');
+        push_styled(&mut text, &mut styles, " | ", 'I');
+        push_styled(
+            &mut text,
+            &mut styles,
+            &format!("{:<1}", row.marker),
+            'I',
+        );
+        push_styled(&mut text, &mut styles, " | ", 'I');
+
+        for segment in &row.segments {
+            let segment_style = match segment.kind {
+                crate::diff_view::DiffViewSegmentKind::Normal => row_style,
+                crate::diff_view::DiffViewSegmentKind::DeleteToken => 'E',
+                crate::diff_view::DiffViewSegmentKind::InsertToken => 'F',
+            };
+            push_styled(&mut text, &mut styles, &segment.text, segment_style);
         }
+        push_styled(&mut text, &mut styles, "\n", row_style);
     }
 
     RenderedDiff { text, styles }
 }
 
-enum FoldItem {
-    Op(crate::diff_core::DiffOp),
-    Skipped(usize),
-}
-
-/// Adaptive folding: if the op count is within the threshold, show all ops;
-/// otherwise keep changes plus `radius` context and collapse the rest.
-fn fold_ops(ops: &[crate::diff_core::DiffOp], options: &DiffOptions) -> Vec<FoldItem> {
-    fn is_change(op: &crate::diff_core::DiffOp) -> bool {
-        !matches!(op, crate::diff_core::DiffOp::Context { .. })
+fn format_line_no(line: Option<usize>) -> String {
+    match line {
+        Some(value) => format!("{value:<3}"),
+        None => "   ".to_string(),
     }
-    if ops.len() <= options.display_full_context_max_lines {
-        return ops.iter().cloned().map(FoldItem::Op).collect();
-    }
-
-    let radius = options.unified_context_radius;
-    let mut keep = vec![false; ops.len()];
-    for (idx, op) in ops.iter().enumerate() {
-        if is_change(op) {
-            let lo = idx.saturating_sub(radius);
-            let hi = (idx + radius + 1).min(ops.len());
-            for k in lo..hi {
-                keep[k] = true;
-            }
-        }
-    }
-
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i < ops.len() {
-        if keep[i] {
-            out.push(FoldItem::Op(ops[i].clone()));
-            i += 1;
-        } else {
-            let start = i;
-            while i < ops.len() && !keep[i] {
-                i += 1;
-            }
-            out.push(FoldItem::Skipped(i - start));
-        }
-    }
-    out
 }
 
 fn push_styled(text: &mut String, styles: &mut String, value: &str, style: char) {
@@ -818,36 +792,42 @@ mod tests {
     use super::*;
 
     #[test]
-    fn render_display_ops_colors_inline_fragments() {
-        use crate::diff_core::{DiffOptions, build_display_diff};
-        let diff = build_display_diff(
-            "i wanna eatt banana",
-            "i wanna eat bananas",
-            &DiffOptions::default(),
-        );
-        let rendered = render_display_ops(&diff, &DiffOptions::default());
+    fn render_diff_view_text_shows_semantic_old_new_gutters() {
+        use crate::{
+            diff_core::{DiffOptions, build_display_diff},
+            diff_view::build_diff_view,
+        };
 
-        assert!(rendered.text.contains("i wanna eat"));
+        let diff = build_display_diff("a\nc\n", "a\nb\nc\n", &DiffOptions::default());
+        let view = build_diff_view(&diff, &DiffOptions::default());
+        let rendered = render_diff_view_text(&view);
+
+        assert!(rendered.text.contains("OLD  NEW  K | Text\n"));
+        assert!(rendered.text.contains("    | 2   | + | b"));
+        assert!(rendered.text.contains("2   | 3   |   | c"));
         assert_eq!(rendered.text.len(), rendered.styles.len());
-        // 'E' = inline-delete-fragment bg style, 'F' = inline-insert-fragment bg style (see table below)
-        assert!(
-            rendered.styles.contains('E'),
-            "delete fragment must be styled"
-        );
-        assert!(
-            rendered.styles.contains('F'),
-            "insert fragment must be styled"
-        );
-        assert!(!rendered.text.contains("[-"), "no brackets in display");
-        assert!(!rendered.text.contains("@@"), "no hunk header in display");
     }
 
     #[test]
-    fn render_display_ops_shows_no_differences_marker() {
-        use crate::diff_core::{DiffOptions, build_display_diff};
-        let diff = build_display_diff("same\n", "same\n", &DiffOptions::default());
-        let rendered = render_display_ops(&diff, &DiffOptions::default());
-        assert!(rendered.text.contains("No differences"));
+    fn render_diff_view_text_marks_replacement_rows_neutral_with_token_styles() {
+        use crate::{
+            diff_core::{DiffOptions, build_display_diff},
+            diff_view::build_diff_view,
+        };
+
+        let diff = build_display_diff(
+            "let mode = \"old\";\n",
+            "let mode = \"new\";\n",
+            &DiffOptions::default(),
+        );
+        let view = build_diff_view(&diff, &DiffOptions::default());
+        let rendered = render_diff_view_text(&view);
+
+        assert!(rendered.text.contains("~ | let mode"));
+        assert!(rendered.styles.contains('H'), "replacement block style required");
+        assert!(rendered.styles.contains('E'), "delete token style required");
+        assert!(rendered.styles.contains('F'), "insert token style required");
+        assert_eq!(rendered.text.len(), rendered.styles.len());
     }
 
     /// Regression for the stale-diff path (Task 7 review, Fix 1):
@@ -856,13 +836,17 @@ mod tests {
     /// against the wrong offset.
     #[test]
     fn with_leading_notice_keeps_text_and_styles_aligned() {
-        use crate::diff_core::{DiffOptions, build_display_diff};
+        use crate::{
+            diff_core::{DiffOptions, build_display_diff},
+            diff_view::build_diff_view,
+        };
         let diff = build_display_diff(
             "i wanna eatt banana",
             "i wanna eat bananas",
             &DiffOptions::default(),
         );
-        let rendered = render_display_ops(&diff, &DiffOptions::default());
+        let view = build_diff_view(&diff, &DiffOptions::default());
+        let rendered = render_diff_view_text(&view);
         // sanity: the base render is already aligned
         assert_eq!(rendered.text.len(), rendered.styles.len());
 
