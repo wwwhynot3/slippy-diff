@@ -2,3 +2,6 @@
 
 # local CodeGraph index + daemon cache
 .codegraph/
+
+# local Superpowers brainstorming companion state
+.superpowers/
