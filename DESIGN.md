@@ -72,14 +72,15 @@ Theme support:
 
 Line-level diff coloring is required:
 
-- `+` insertion lines use insert colors.
-- `-` deletion lines use delete colors.
-- Input and diff panes show line numbers.
-- Replacement blocks pair similar deleted and inserted lines before rendering; reliable pairs use inline background colors for changed fragments (insert bg / delete bg), no text brackets; the structured model is `DiffOp`. Unmatched lines stay as plain `-` or `+` lines.
+- The diff result uses a unified review layout with old/new line-number gutters, a marker column, rendered text, and a narrow change overview rail.
+- `+` insertion rows use soft insert colors; `-` deletion rows use soft delete colors.
+- Input panes show line numbers.
+- Replacement blocks pair similar deleted and inserted lines before rendering; paired rows use a neutral block background with `~` markers and stronger red/green token highlights for the exact changed fragments.
+- The old/new gutters are semantic references: inserted rows leave the old line blank, deleted rows leave the new line blank, and later context rows may show offset line numbers.
 - `---` and `+++` header lines use header styling.
 - Preserve text prefixes so the diff remains understandable even if styling fails.
 - An entirely uncolored diff is a defect unless FLTK styling is proven impossible during build verification.
-- Adaptive folding: show all lines when the op count does not exceed `display_full_context_max_lines`; beyond that, display context lines within `unified_context_radius` with a `⋯ N unchanged ⋯` marker.
+- Adaptive folding: show all lines when the op count does not exceed `display_full_context_max_lines`; beyond that, display context lines within `unified_context_radius` with a `... N unchanged lines ...` marker.
 - All diff thresholds/ratios are configurable with defaults.
 
 Color tokens:

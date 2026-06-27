@@ -10,12 +10,13 @@ Built with Rust and [`fltk-rs`](https://github.com/fltk-rs/fltk-rs).
 
 - **Two editable input panes** (left / right) with line numbers.
 - **Compact action bar**: Paste Left · Paste Right · Compare · Swap · Clear · Copy Diff.
-- **Read-only diff pane** with IntelliJ-style rendering:
-  - Line-level background colors for insertions and deletions.
-  - Inline fragment highlighting for matched replacement pairs — changed fragments are colored in place, with no `+`/`-` brackets cluttering the display.
-  - Similarity-weighted line alignment pairs similar deleted/inserted lines so replacements read naturally.
-  - Adaptive folding: large diffs collapse runs of unchanged context into a `⋯ N unchanged ⋯` marker instead of scrolling forever.
-- **Copy Diff** produces a standard unified diff (with `@@` hunks and `---`/`+++` headers) from the same model the display uses.
+- **Read-only unified review diff pane** with IntelliJ-inspired rendering:
+  - Semantic old/new line-number gutters, so inserted rows have no old line number and deleted rows have no new line number.
+  - Soft row coloring for pure insertions/deletions.
+  - Neutral replacement blocks for paired edits, with red/green token highlights for the exact changed fragments.
+  - A compact change overview rail showing where edits occur in the rendered diff.
+  - Adaptive folding: large diffs collapse runs of unchanged context into a `... N unchanged lines ...` marker instead of scrolling forever.
+- **Copy Diff** copies standard unified diff text (with `@@` hunks and `---`/`+++` headers) from the same model the display uses.
 - **Debounced auto-diff** (300 ms) for normal-sized edits.
 - **Manual Compare** for large input — combined size above 256 KiB or 8,000 lines skips auto-diff and asks you to compare explicitly.
 - **Themes**: System / Light / Dark (config-only).
