@@ -170,7 +170,9 @@ pub fn run() -> Result<(), FltkError> {
     diff_mode.set_label_color(palette.text);
     diff_mode.set_label_size(13);
     let mut prev_change = make_button("Prev", false, palette);
+    prev_change.deactivate();
     let mut next_change = make_button("Next", false, palette);
+    next_change.deactivate();
     let mut diff_summary = Frame::default().with_label("0 removed  0 added  0 edited");
     diff_summary.set_frame(FrameType::FlatBox);
     diff_summary.set_color(palette.header_bg);
