@@ -197,6 +197,7 @@ pub fn run() -> Result<(), FltkError> {
     let mut next_change = make_button("Next", false, palette);
     next_change.deactivate();
     let mut pin = make_button(pin_button_label(false), false, palette);
+    pin.set_shortcut(Shortcut::Command | Shortcut::Shift | 'p');
     pin.set_tooltip("Keep the Slippy window above other windows");
     let mut diff_summary = Frame::default().with_label("0 removed  0 added  0 edited");
     diff_summary.set_frame(FrameType::FlatBox);
@@ -216,7 +217,7 @@ pub fn run() -> Result<(), FltkError> {
         state.borrow().options(),
     )));
     let stale_diff_notice = Rc::new(Cell::new(false));
-    let (mut diff_scroll, diff_canvas) = make_diff_canvas(
+    let (diff_scroll, diff_canvas) = make_diff_canvas(
         palette,
         initial_diff_view.clone(),
         stale_diff_notice.clone(),
