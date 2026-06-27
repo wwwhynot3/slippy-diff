@@ -277,7 +277,10 @@ mod tests {
     use crate::diff_core::build_display_diff;
 
     fn text(row: &DiffViewRow) -> String {
-        row.segments.iter().map(|segment| segment.text.as_str()).collect()
+        row.segments
+            .iter()
+            .map(|segment| segment.text.as_str())
+            .collect()
     }
 
     #[test]
@@ -461,7 +464,11 @@ mod tests {
                 .iter()
                 .any(|mark| mark.kind == ChangeMarkKind::Insert)
         );
-        assert!(view.marks.iter().all(|mark| mark.row_index < view.rows.len()));
+        assert!(
+            view.marks
+                .iter()
+                .all(|mark| mark.row_index < view.rows.len())
+        );
     }
 
     #[test]
@@ -471,11 +478,7 @@ mod tests {
             unified_context_radius: 1,
             ..DiffOptions::default()
         };
-        let diff = build_display_diff(
-            "a\nb\nc\nd\ne\nf\ng\n",
-            "a\nb\nX\nd\ne\nf\ng\n",
-            &options,
-        );
+        let diff = build_display_diff("a\nb\nc\nd\ne\nf\ng\n", "a\nb\nX\nd\ne\nf\ng\n", &options);
 
         let rendered = build_diff_view(&diff, &options);
 
@@ -485,7 +488,10 @@ mod tests {
             .position(|row| row.kind == DiffViewRowKind::Fold)
             .expect("expected at least one fold row");
 
-        assert_eq!(text(&rendered.rows[fold_index]), "... 1 unchanged lines ...");
+        assert_eq!(
+            text(&rendered.rows[fold_index]),
+            "... 1 unchanged lines ..."
+        );
 
         let row_after_fold = &rendered.rows[fold_index + 1];
         assert_eq!(row_after_fold.kind, DiffViewRowKind::Context);
