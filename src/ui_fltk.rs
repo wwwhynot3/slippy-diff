@@ -189,6 +189,10 @@ pub fn run() -> Result<(), FltkError> {
     let mut overview_rail = Frame::default();
     overview_rail.set_frame(FrameType::FlatBox);
     overview_rail.set_color(palette.header_bg);
+    overview_rail.set_label_font(Font::Courier);
+    overview_rail.set_label_size(11);
+    overview_rail.set_label_color(palette.muted);
+    overview_rail.set_align(fltk::enums::Align::Top | fltk::enums::Align::Inside);
     diff_body.fixed(&overview_rail, OVERVIEW_RAIL_WIDTH);
     diff_body.end();
 
