@@ -604,6 +604,8 @@ fn render_state(state: &Rc<RefCell<AppState>>, handles: &Rc<RefCell<UiHandles>>)
     diff_buffer.set_text(&rendered.text);
     diff_style_buffer.set_text(&rendered.styles);
     diff_summary.set_label(&diff_summary_label(&view.summary));
+    overview_rail.set_label(&overview_rail_label(&view));
+    overview_rail.set_label_color(handles.status.label_color());
     overview_rail.redraw();
     status.set_label(state.status());
     if state.has_current_diff() {
@@ -716,6 +718,32 @@ fn diff_summary_label(summary: &crate::diff_view::ChangeSummary) -> String {
         "{} removed  {} added  {} edited",
         summary.removed, summary.added, summary.edited
     )
+}
+
+fn overview_rail_label(view: &crate::diff_view::RenderedDiffView) -> String {
+    use crate::diff_view::ChangeMarkKind;
+
+    if view.rows.is_empty() || view.marks.is_empty() {
+        return String::new();
+    }
+
+    let height = 12usize;
+    let mut slots = vec![' '; height];
+    let last_row = view.rows.len().saturating_sub(1).max(1);
+    for mark in &view.marks {
+        let slot = (mark.row_index * (height - 1)) / last_row;
+        slots[slot] = match mark.kind {
+            ChangeMarkKind::Delete => '-',
+            ChangeMarkKind::Insert => '+',
+            ChangeMarkKind::Replace => '~',
+        };
+    }
+
+    slots
+        .into_iter()
+        .map(|slot| slot.to_string())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn render_diff_view_text(view: &crate::diff_view::RenderedDiffView) -> RenderedDiff {
@@ -938,5 +966,24 @@ mod tests {
             diff_summary_label(&summary),
             "2 removed  3 added  1 edited"
         );
+    }
+
+    #[test]
+    fn overview_rail_label_places_change_markers() {
+        use crate::{
+            diff_core::{DiffOptions, build_display_diff},
+            diff_view::build_diff_view,
+        };
+
+        let diff = build_display_diff(
+            "i wanna eatt banana\ni wanna eatt banana",
+            "i wanna eat bananas\ni wanna eatt banana\ni，",
+            &DiffOptions::default(),
+        );
+        let view = build_diff_view(&diff, &DiffOptions::default());
+        let label = overview_rail_label(&view);
+
+        assert!(label.contains('~'));
+        assert!(label.contains('+'));
     }
 }

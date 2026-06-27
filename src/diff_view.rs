@@ -41,10 +41,24 @@ pub struct ChangeSummary {
     pub edited: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChangeMarkKind {
+    Delete,
+    Insert,
+    Replace,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChangeMark {
+    pub row_index: usize,
+    pub kind: ChangeMarkKind,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenderedDiffView {
     pub rows: Vec<DiffViewRow>,
     pub summary: ChangeSummary,
+    pub marks: Vec<ChangeMark>,
     pub left_no_newline: bool,
     pub right_no_newline: bool,
 }
@@ -77,12 +91,14 @@ pub fn build_diff_view(diff: &DisplayDiff, options: &DiffOptions) -> RenderedDif
                 added: 0,
                 edited: 0,
             },
+            marks: vec![],
             left_no_newline: diff.left_no_newline,
             right_no_newline: diff.right_no_newline,
         };
     }
 
     let mut rows = Vec::new();
+    let mut marks = Vec::new();
     let mut summary = ChangeSummary {
         removed: 0,
         added: 0,
@@ -107,6 +123,10 @@ pub fn build_diff_view(diff: &DisplayDiff, options: &DiffOptions) -> RenderedDif
                 new_line += 1;
             }
             FoldItem::Op(DiffOp::Delete { text }) => {
+                marks.push(ChangeMark {
+                    row_index: rows.len(),
+                    kind: ChangeMarkKind::Delete,
+                });
                 rows.push(DiffViewRow {
                     kind: DiffViewRowKind::Delete,
                     old_line: Some(old_line),
@@ -119,6 +139,10 @@ pub fn build_diff_view(diff: &DisplayDiff, options: &DiffOptions) -> RenderedDif
                 summary.removed += 1;
             }
             FoldItem::Op(DiffOp::Insert { text }) => {
+                marks.push(ChangeMark {
+                    row_index: rows.len(),
+                    kind: ChangeMarkKind::Insert,
+                });
                 rows.push(DiffViewRow {
                     kind: DiffViewRowKind::Insert,
                     old_line: None,
@@ -158,6 +182,10 @@ pub fn build_diff_view(diff: &DisplayDiff, options: &DiffOptions) -> RenderedDif
                     }
                 }
 
+                marks.push(ChangeMark {
+                    row_index: rows.len(),
+                    kind: ChangeMarkKind::Replace,
+                });
                 rows.push(DiffViewRow {
                     kind: DiffViewRowKind::ReplaceOld,
                     old_line: Some(old_line),
@@ -197,6 +225,7 @@ pub fn build_diff_view(diff: &DisplayDiff, options: &DiffOptions) -> RenderedDif
     RenderedDiffView {
         rows,
         summary,
+        marks,
         left_no_newline: diff.left_no_newline,
         right_no_newline: diff.right_no_newline,
     }
@@ -276,6 +305,7 @@ mod tests {
                     added: 0,
                     edited: 0,
                 },
+                marks: vec![],
                 left_no_newline: true,
                 right_no_newline: true,
             }
@@ -409,6 +439,29 @@ mod tests {
 
         assert!(rendered.left_no_newline);
         assert!(rendered.right_no_newline);
+    }
+
+    #[test]
+    fn change_marks_track_visible_change_rows() {
+        let diff = build_display_diff(
+            "i wanna eatt banana\ni wanna eatt banana",
+            "i wanna eat bananas\ni wanna eatt banana\ni，",
+            &DiffOptions::default(),
+        );
+
+        let view = build_diff_view(&diff, &DiffOptions::default());
+
+        assert!(
+            view.marks
+                .iter()
+                .any(|mark| mark.kind == ChangeMarkKind::Replace)
+        );
+        assert!(
+            view.marks
+                .iter()
+                .any(|mark| mark.kind == ChangeMarkKind::Insert)
+        );
+        assert!(view.marks.iter().all(|mark| mark.row_index < view.rows.len()));
     }
 
     #[test]
