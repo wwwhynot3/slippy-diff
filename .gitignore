@@ -5,3 +5,6 @@
 
 # local Superpowers brainstorming companion state
 .superpowers/
+
+# local feature worktrees
+.worktrees/
