@@ -723,7 +723,7 @@ fn diff_summary_label(summary: &crate::diff_view::ChangeSummary) -> String {
 fn overview_rail_label(view: &crate::diff_view::RenderedDiffView) -> String {
     use crate::diff_view::ChangeMarkKind;
 
-    if view.rows.is_empty() || view.marks.is_empty() {
+    if view.rows.is_empty() {
         return String::new();
     }
 
@@ -985,5 +985,22 @@ mod tests {
 
         assert!(label.contains('~'));
         assert!(label.contains('+'));
+    }
+
+    #[test]
+    fn overview_rail_label_keeps_blank_slots_without_marks() {
+        use crate::{
+            diff_core::{DiffOptions, build_display_diff},
+            diff_view::build_diff_view,
+        };
+
+        let diff = build_display_diff("same\n", "same\n", &DiffOptions::default());
+        let view = build_diff_view(&diff, &DiffOptions::default());
+        let label = overview_rail_label(&view);
+
+        assert_eq!(label, vec![" "; 12].join("\n"));
+        assert!(!label.contains('-'));
+        assert!(!label.contains('+'));
+        assert!(!label.contains('~'));
     }
 }
