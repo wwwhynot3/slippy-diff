@@ -501,8 +501,10 @@ mod tests {
 
     #[test]
     fn build_display_diff_falls_back_to_exact_when_over_cap() {
-        let mut o = DiffOptions::default();
-        o.similarity_pairing_max_lines = 0; // force fallback
+        let o = DiffOptions {
+            similarity_pairing_max_lines: 0, // force fallback
+            ..DiffOptions::default()
+        };
         let d = build_display_diff("a\nb\nc", "a\nx\nc", &o);
         assert!(
             d.ops.iter().all(|op| !matches!(op, DiffOp::Inline { .. })),
