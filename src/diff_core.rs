@@ -160,12 +160,39 @@ pub fn build_display_diff(left: &str, right: &str, options: &DiffOptions) -> Dis
     } else {
         similarity_ops(&left_lines, &right_lines, options)
     };
+    let ops = normalize_op_order(ops);
 
     DisplayDiff {
         ops,
         left_no_newline,
         right_no_newline,
     }
+}
+
+/// Reorder so that within each maximal run of standalone Delete/Insert ops, all
+/// Deletes precede all Inserts — the order `diff -u` uses, and what the Copy
+/// Diff output (via `similar`) already produces. Context, Inline (already a
+/// paired old/new replace), and other ops are left in place. Line counters in
+/// `build_diff_view` are independent per side, so this does not change any
+/// row's line numbers.
+fn normalize_op_order(ops: Vec<DiffOp>) -> Vec<DiffOp> {
+    let mut out: Vec<DiffOp> = Vec::with_capacity(ops.len());
+    let mut deletes: Vec<DiffOp> = Vec::new();
+    let mut inserts: Vec<DiffOp> = Vec::new();
+    for op in ops {
+        match &op {
+            DiffOp::Delete { .. } => deletes.push(op),
+            DiffOp::Insert { .. } => inserts.push(op),
+            _ => {
+                out.append(&mut deletes);
+                out.append(&mut inserts);
+                out.push(op);
+            }
+        }
+    }
+    out.append(&mut deletes);
+    out.append(&mut inserts);
+    out
 }
 
 /// Render a standard unified diff — the text Copy Diff produces. Uses
@@ -477,6 +504,18 @@ mod tests {
         // No trailing newline -> the standard "\ No newline at end of file" marker.
         let text = render_unified_diff("a\nb", "a\nc", &DiffOptions::default());
         assert!(text.contains("\\ No newline at end of file"));
+    }
+
+    #[test]
+    fn mixed_delete_insert_ops_emit_deletes_before_inserts() {
+        let d = build_display_diff("a\nb\nc\n", "a\nx\nc\n", &DiffOptions::default());
+        // b is deleted, x is inserted -> the first change op must be a Delete.
+        let first_change_kind = d.ops.iter().find_map(|op| match op {
+            DiffOp::Delete { .. } => Some('D'),
+            DiffOp::Insert { .. } => Some('I'),
+            _ => None,
+        });
+        assert_eq!(first_change_kind, Some('D'));
     }
 
     #[test]
