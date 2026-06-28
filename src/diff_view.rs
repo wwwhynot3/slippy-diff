@@ -63,6 +63,39 @@ pub struct RenderedDiffView {
     pub right_no_newline: bool,
 }
 
+impl RenderedDiffView {
+    /// Maximal runs of consecutive change rows (Delete / Insert / ReplaceOld /
+    /// ReplaceNew) as half-open row-index ranges. Context / Fold / Notice rows
+    /// break runs. Empty for equal-text or empty diffs. Prev/Next navigation
+    /// steps through these regions.
+    pub fn change_regions(&self) -> Vec<std::ops::Range<usize>> {
+        fn is_change(kind: DiffViewRowKind) -> bool {
+            matches!(
+                kind,
+                DiffViewRowKind::Delete
+                    | DiffViewRowKind::Insert
+                    | DiffViewRowKind::ReplaceOld
+                    | DiffViewRowKind::ReplaceNew
+            )
+        }
+        let mut regions = Vec::new();
+        let mut start: Option<usize> = None;
+        for (idx, row) in self.rows.iter().enumerate() {
+            if is_change(row.kind) {
+                if start.is_none() {
+                    start = Some(idx);
+                }
+            } else if let Some(begin) = start.take() {
+                regions.push(begin..idx);
+            }
+        }
+        if let Some(begin) = start {
+            regions.push(begin..self.rows.len());
+        }
+        regions
+    }
+}
+
 enum FoldItem {
     Op(DiffOp),
     Skipped(usize),
@@ -498,5 +531,72 @@ mod tests {
         assert_eq!(row_after_fold.old_line, Some(2));
         assert_eq!(row_after_fold.new_line, Some(2));
         assert_eq!(text(row_after_fold), "b");
+    }
+
+    fn view_of(kinds: &[DiffViewRowKind]) -> RenderedDiffView {
+        let row = |kind: DiffViewRowKind| DiffViewRow {
+            kind,
+            old_line: None,
+            new_line: None,
+            marker: "",
+            segments: vec![],
+            group_id: None,
+        };
+        RenderedDiffView {
+            rows: kinds.iter().map(|&k| row(k)).collect(),
+            summary: ChangeSummary {
+                removed: 0,
+                added: 0,
+                edited: 0,
+            },
+            marks: vec![],
+            left_no_newline: false,
+            right_no_newline: false,
+        }
+    }
+
+    #[test]
+    fn change_regions_groups_contiguous_change_rows() {
+        use DiffViewRowKind::*;
+        // Context, Delete, Insert, Context, ReplaceOld, ReplaceNew, Context
+        let view = view_of(&[Context, Delete, Insert, Context, ReplaceOld, ReplaceNew, Context]);
+        assert_eq!(view.change_regions(), vec![1..3, 4..6]);
+    }
+
+    #[test]
+    fn change_regions_collapses_adjacent_delete_insert() {
+        use DiffViewRowKind::*;
+        // Context, Delete, Delete, Insert, Context -> one region
+        let view = view_of(&[Context, Delete, Delete, Insert, Context]);
+        assert_eq!(view.change_regions(), vec![1..4]);
+    }
+
+    #[test]
+    fn change_regions_breaks_on_fold_and_notice() {
+        use DiffViewRowKind::*;
+        // Delete, Fold, Insert -> two regions
+        let view = view_of(&[Delete, Fold, Insert]);
+        assert_eq!(view.change_regions(), vec![0..1, 2..3]);
+    }
+
+    #[test]
+    fn change_regions_covers_trailing_change_run() {
+        use DiffViewRowKind::*;
+        // Context, Delete, Delete (change run at the end, no trailing context)
+        let view = view_of(&[Context, Delete, Delete]);
+        assert_eq!(view.change_regions(), vec![1..3]);
+    }
+
+    #[test]
+    fn change_regions_empty_without_change_rows() {
+        use DiffViewRowKind::*;
+        let view = view_of(&[Context, Context, Notice]);
+        assert!(view.change_regions().is_empty());
+    }
+
+    #[test]
+    fn change_regions_empty_for_no_rows() {
+        let view = view_of(&[]);
+        assert!(view.change_regions().is_empty());
     }
 }
