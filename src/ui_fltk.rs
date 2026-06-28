@@ -797,7 +797,11 @@ fn copy_current_diff(state: &Rc<RefCell<AppState>>, handles: &Rc<RefCell<UiHandl
         render_state(state, handles);
         return;
     }
-    let diff = render_unified_diff(state_snapshot.diff());
+    let diff = render_unified_diff(
+        state_snapshot.left(),
+        state_snapshot.right(),
+        state_snapshot.options(),
+    );
     drop(state_snapshot);
 
     // Reuse the long-lived Clipboard from UiHandles instead of creating one

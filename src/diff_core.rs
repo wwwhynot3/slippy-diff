@@ -29,10 +29,6 @@ impl Default for DiffOptions {
     }
 }
 
-const BOTH_SIDES_NO_NEWLINE_MARKER: &str = "! Left and right text end without a trailing newline";
-const LEFT_NO_NEWLINE_MARKER: &str = "! Left text ends without a trailing newline";
-const RIGHT_NO_NEWLINE_MARKER: &str = "! Right text ends without a trailing newline";
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InlineDiffSegmentKind {
     Equal,
@@ -172,73 +168,25 @@ pub fn build_display_diff(left: &str, right: &str, options: &DiffOptions) -> Dis
     }
 }
 
-pub fn render_unified_diff(diff: &DisplayDiff) -> String {
-    if diff.ops.is_empty() {
+/// Render a standard unified diff — the text Copy Diff produces. Uses
+/// `similar`'s unified-diff printer so hunk headers with correct line
+/// numbers, delete-before-insert ordering, the configured context radius,
+/// and the `\ No newline at end of file` marker all match `diff -u`.
+pub fn render_unified_diff(left: &str, right: &str, options: &DiffOptions) -> String {
+    if left == right {
         return "No differences\n".to_string();
     }
-
-    let mut out = String::new();
-    out.push_str("--- left\n+++ right\n");
-
-    let left_count = diff
-        .ops
-        .iter()
-        .filter(|op| !matches!(op, DiffOp::Insert { .. }))
-        .count()
-        .max(1);
-    let right_count = diff
-        .ops
-        .iter()
-        .filter(|op| !matches!(op, DiffOp::Delete { .. }))
-        .count()
-        .max(1);
-    out.push_str(&format!("@@ -1,{left_count} +1,{right_count} @@\n"));
-
-    for op in &diff.ops {
-        match op {
-            DiffOp::Context { text } => {
-                out.push(' ');
-                out.push_str(text);
-                out.push('\n');
-            }
-            DiffOp::Delete { text } => {
-                out.push('-');
-                out.push_str(text);
-                out.push('\n');
-            }
-            DiffOp::Insert { text } => {
-                out.push('+');
-                out.push_str(text);
-                out.push('\n');
-            }
-            DiffOp::Inline { segments } => {
-                let (mut old, mut new) = (String::new(), String::new());
-                for s in segments {
-                    match s.kind {
-                        InlineDiffSegmentKind::Equal => {
-                            old.push_str(&s.text);
-                            new.push_str(&s.text);
-                        }
-                        InlineDiffSegmentKind::Delete => old.push_str(&s.text),
-                        InlineDiffSegmentKind::Insert => new.push_str(&s.text),
-                    }
-                }
-                out.push('-');
-                out.push_str(&old);
-                out.push('\n');
-                out.push('+');
-                out.push_str(&new);
-                out.push('\n');
-            }
-        }
+    let diff = TextDiff::from_lines(left, right);
+    let rendered = diff
+        .unified_diff()
+        .context_radius(options.unified_context_radius)
+        .header("left", "right")
+        .to_string();
+    if rendered.is_empty() {
+        "No differences\n".to_string()
+    } else {
+        ensure_single_trailing_newline(rendered)
     }
-
-    if let Some(notice) = no_newline_notice(diff.left_no_newline, diff.right_no_newline) {
-        out.push_str(notice);
-        out.push('\n');
-    }
-
-    ensure_single_trailing_newline(out)
 }
 
 fn exact_ops(left: &str, right: &str) -> Vec<DiffOp> {
@@ -356,18 +304,6 @@ fn similarity_ops(left: &[&str], right: &[&str], options: &DiffOptions) -> Vec<D
     }
     ops_rev.reverse();
     ops_rev
-}
-
-fn no_newline_notice(
-    left_missing_newline: bool,
-    right_missing_newline: bool,
-) -> Option<&'static str> {
-    match (left_missing_newline, right_missing_newline) {
-        (true, true) => Some(BOTH_SIDES_NO_NEWLINE_MARKER),
-        (true, false) => Some(LEFT_NO_NEWLINE_MARKER),
-        (false, true) => Some(RIGHT_NO_NEWLINE_MARKER),
-        (false, false) => None,
-    }
 }
 
 #[cfg(test)]
@@ -513,33 +449,34 @@ mod tests {
     }
 
     #[test]
-    fn render_unified_diff_emits_no_differences_for_empty_ops() {
-        let d = DisplayDiff::no_changes("same\n", "same\n");
-        assert_eq!(render_unified_diff(&d), "No differences\n");
+    fn render_unified_diff_emits_no_differences_for_equal_text() {
+        let text = render_unified_diff("same\n", "same\n", &DiffOptions::default());
+        assert_eq!(text, "No differences\n");
     }
 
     #[test]
-    fn render_unified_diff_formats_ops_as_standard_text() {
-        let d = build_display_diff("a\nb", "a\nc", &DiffOptions::default());
-        let text = render_unified_diff(&d);
-        assert!(text.starts_with("--- left\n+++ right\n"));
-        assert!(text.contains("@@ -1,2 +1,2 @@\n"));
-        assert!(text.contains(" a\n"));
-        assert!(text.contains("-b\n"));
-        assert!(text.contains("+c\n"));
-        assert!(text.ends_with('\n') && !text.ends_with("\n\n"));
+    fn render_unified_diff_emits_standard_unified_diff() {
+        // Trailing newlines on both sides -> no "\ No newline" marker, fully
+        // predictable output that matches `diff -u`.
+        let text = render_unified_diff("a\nb\n", "a\nc\n", &DiffOptions::default());
+        assert_eq!(text, "--- left\n+++ right\n@@ -1,2 +1,2 @@\n a\n-b\n+c\n");
     }
 
     #[test]
-    fn render_unified_diff_expands_inline_pair_to_minus_plus() {
-        let d = build_display_diff(
-            "i wanna eatt banana",
-            "i wanna eat bananas",
-            &DiffOptions::default(),
-        );
-        let text = render_unified_diff(&d);
-        assert!(text.contains("-i wanna eatt banana\n"));
-        assert!(text.contains("+i wanna eat bananas\n"));
+    fn render_unified_diff_puts_deletes_before_inserts() {
+        // Single-line replace: the deletion (-) must precede the insertion (+),
+        // which the previous hand-rolled renderer got backwards.
+        let text = render_unified_diff("1\n", "2\n", &DiffOptions::default());
+        let minus = text.find("-1\n").expect("deletion line present");
+        let plus = text.find("+2\n").expect("insertion line present");
+        assert!(minus < plus, "deletion must precede insertion");
+    }
+
+    #[test]
+    fn render_unified_diff_marks_missing_trailing_newline() {
+        // No trailing newline -> the standard "\ No newline at end of file" marker.
+        let text = render_unified_diff("a\nb", "a\nc", &DiffOptions::default());
+        assert!(text.contains("\\ No newline at end of file"));
     }
 
     #[test]
