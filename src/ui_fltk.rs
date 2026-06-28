@@ -128,6 +128,7 @@ struct UiHandles {
     prev_change: Button,
     next_change: Button,
     nav_cursor: Rc<Cell<Option<usize>>>,
+    clipboard: Option<Clipboard>,
 }
 
 #[derive(Debug, Clone)]
@@ -379,6 +380,10 @@ pub fn run() -> Result<(), FltkError> {
 
     left_editor.take_focus().ok();
 
+    // A single long-lived clipboard handle so arboard keeps serving the
+    // selection (Linux) until the app exits, instead of dropping it per copy.
+    let clipboard = Clipboard::new().ok();
+
     let handles = Rc::new(RefCell::new(UiHandles {
         left_editor,
         right_editor,
@@ -400,6 +405,7 @@ pub fn run() -> Result<(), FltkError> {
         prev_change: prev_change.clone(),
         next_change: next_change.clone(),
         nav_cursor: nav_cursor.clone(),
+        clipboard,
     }));
     render_state(&state, &handles);
 
@@ -794,11 +800,20 @@ fn copy_current_diff(state: &Rc<RefCell<AppState>>, handles: &Rc<RefCell<UiHandl
     let diff = render_unified_diff(state_snapshot.diff());
     drop(state_snapshot);
 
-    match Clipboard::new().and_then(|mut clipboard| clipboard.set_text(diff)) {
-        Ok(()) => state.borrow_mut().set_status("Diff copied."),
-        Err(_) => state
+    // Reuse the long-lived Clipboard from UiHandles instead of creating one
+    // per copy. On Linux the clipboard is ownership-based: arboard only serves
+    // the contents while the Clipboard handle is alive, so a per-call handle
+    // would be dropped immediately and the paste would never arrive.
+    let copied = match handles.borrow_mut().clipboard.as_mut() {
+        Some(clipboard) => clipboard.set_text(diff).is_ok(),
+        None => false,
+    };
+    if copied {
+        state.borrow_mut().set_status("Diff copied.");
+    } else {
+        state
             .borrow_mut()
-            .set_status("Copy Diff failed: clipboard unavailable."),
+            .set_status("Copy Diff failed: clipboard unavailable.");
     }
     render_state(state, handles);
 }
