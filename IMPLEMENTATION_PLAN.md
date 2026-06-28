@@ -163,6 +163,15 @@ Button rules:
 | Swap | Swaps panes, marks diff dirty, schedules auto-diff if allowed |
 | Clear | Clears inputs and diff, invalidates workers |
 | Copy Diff | Enabled when a current diff result exists, including `No differences\n` |
+| Prev | Enabled when a current diff has at least one change; steps to the previous change region (wraps) |
+| Next | Enabled when a current diff has at least one change; steps to the next change region (wraps) |
+
+Diff navigation:
+
+- Prev/Next step through maximal runs of adjacent change rows (Delete/Insert/ReplaceOld/ReplaceNew); Context/Fold/Notice rows break runs (see `diff_view::RenderedDiffView::change_regions`).
+- Navigation wraps around at both ends. From a fresh diff the first Prev or Next lands on the first change.
+- The active region is marked with a soft `Selection` strip on the canvas's left edge; status reads `Change N of M.` during navigation.
+- The navigation cursor is UI-local ephemeral state (`Rc<Cell<Option<usize>>>`); it is not persisted and is not part of `app_state`. It resets to `None` whenever a new diff result is applied or the inputs are cleared.
 
 Status behavior:
 
@@ -178,6 +187,7 @@ Status behavior:
 | Copy failure | Preserve diff | `Copy Diff failed: clipboard unavailable.` |
 | Config load invalid | Use defaults | `Config invalid; using defaults.` |
 | Config save failure | Keep app running | `Could not save layout config.` |
+| Prev/Next navigation | Preserve current diff | `Change N of M.` |
 
 Keyboard shortcuts:
 
@@ -188,6 +198,8 @@ Keyboard shortcuts:
 | Ctrl/Cmd+R | Paste Right |
 | Ctrl/Cmd+Shift+S | Swap |
 | Ctrl/Cmd+Shift+C | Copy Diff |
+| Ctrl/Cmd+Shift+Up | Previous change |
+| Ctrl/Cmd+Shift+Down | Next change |
 
 Use Cmd on macOS where FLTK supports it and Ctrl elsewhere. If FLTK cannot map Cmd cleanly, keep Ctrl working and document the limitation.
 

@@ -61,6 +61,8 @@ Shortcuts:
 - `Ctrl/Cmd+Shift+S`: Swap
 - `Ctrl/Cmd+Shift+C`: Copy Diff
 - `Ctrl/Cmd+Shift+P`: Toggle Pin
+- `Ctrl/Cmd+Shift+Up`: Previous change
+- `Ctrl/Cmd+Shift+Down`: Next change
 
 Use Cmd on macOS where FLTK supports it and Ctrl elsewhere. If FLTK cannot map Cmd cleanly, keep Ctrl working and document the limitation.
 
@@ -86,6 +88,7 @@ Line-level diff coloring is required:
 - Preserve visible marker and line-number gutters so the diff remains understandable even if colors are hard to distinguish.
 - An entirely uncolored or blank rendered diff is a defect unless FLTK drawing is proven impossible during build verification.
 - Adaptive folding: show all lines when the op count does not exceed `display_full_context_max_lines`; beyond that, display context lines within `unified_context_radius` with a `... N unchanged lines ...` marker.
+- Change navigation: Prev/Next step through maximal runs of adjacent change rows (delete/insert/replace), wrapping around at both ends. The active region is marked with a soft `Selection` strip on the canvas's left edge, and the status bar reads `Change N of M.` while navigating. The position resets when a new diff is produced or the inputs are cleared.
 - All diff thresholds/ratios are configurable with defaults.
 
 Color tokens:
@@ -132,6 +135,7 @@ Density:
 | Config save failure | Keep app running | `Could not save layout config.` |
 | Pin enabled | Preserve current diff | `Pinned above other windows.` |
 | Pin disabled | Preserve current diff | `Pin cleared. Some window managers keep native topmost until refocus.` |
+| Prev/Next navigation | Preserve current diff | `Change N of M.` |
 
 ## Accessibility Basics
 

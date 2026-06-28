@@ -99,6 +99,8 @@ Wayland additionally needs `wayland`, `wayland-protocols`, and `libxkbcommon` (o
 | `Ctrl/Cmd+Shift+S` | Swap |
 | `Ctrl/Cmd+Shift+C` | Copy Diff |
 | `Ctrl/Cmd+Shift+P` | Toggle Pin |
+| `Ctrl/Cmd+Shift+↑` | Previous change |
+| `Ctrl/Cmd+Shift+↓` | Next change |
 
 FLTK maps `Cmd` on macOS and `Ctrl` on Linux/Windows through `Shortcut::Command`.
 
