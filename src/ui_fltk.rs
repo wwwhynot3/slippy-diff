@@ -123,6 +123,9 @@ struct UiHandles {
     status: Frame,
     copy_diff: Button,
     pin: Button,
+    prev_change: Button,
+    next_change: Button,
+    nav_cursor: Rc<Cell<Option<usize>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -217,8 +220,10 @@ pub fn run() -> Result<(), FltkError> {
     diff_mode.set_label_size(13);
     let mut prev_change = make_button("Prev", false, palette);
     prev_change.deactivate();
+    prev_change.set_shortcut(Shortcut::Command | Shortcut::Shift | fltk::enums::Key::Up);
     let mut next_change = make_button("Next", false, palette);
     next_change.deactivate();
+    next_change.set_shortcut(Shortcut::Command | Shortcut::Shift | fltk::enums::Key::Down);
     let mut pin = make_button(pin_button_label(pinned.get()), false, palette);
     pin.set_shortcut(Shortcut::Command | Shortcut::Shift | 'p');
     pin.set_tooltip("Keep the Slippy window above other windows");
@@ -240,6 +245,7 @@ pub fn run() -> Result<(), FltkError> {
         state.borrow().options(),
     )));
     let stale_diff_notice = Rc::new(Cell::new(false));
+    let nav_cursor = Rc::new(Cell::new(Option::<usize>::None));
     let (diff_scroll, diff_canvas) = make_diff_canvas(
         palette,
         initial_diff_view.clone(),
@@ -388,6 +394,9 @@ pub fn run() -> Result<(), FltkError> {
         status,
         copy_diff: copy_diff.clone(),
         pin: pin.clone(),
+        prev_change: prev_change.clone(),
+        next_change: next_change.clone(),
+        nav_cursor: nav_cursor.clone(),
     }));
     render_state(&state, &handles);
 
@@ -490,6 +499,22 @@ pub fn run() -> Result<(), FltkError> {
     {
         let state = state.clone();
         let handles = handles.clone();
+        prev_change.set_callback(move |_| {
+            navigate_change(&state, &handles, false);
+        });
+    }
+
+    {
+        let state = state.clone();
+        let handles = handles.clone();
+        next_change.set_callback(move |_| {
+            navigate_change(&state, &handles, true);
+        });
+    }
+
+    {
+        let state = state.clone();
+        let handles = handles.clone();
         let debounce_generation = debounce_generation.clone();
         let suppress_buffer_events = suppress_buffer_events.clone();
         clear.set_callback(move |_| {
@@ -518,6 +543,7 @@ pub fn run() -> Result<(), FltkError> {
             match message {
                 UiMessage::DiffReady(result) => {
                     state.borrow_mut().apply_result(result);
+                    handles.borrow().nav_cursor.set(None);
                     render_state(&state, &handles);
                 }
             }
@@ -732,6 +758,7 @@ fn spawn_diff_worker(request: crate::app_state::DiffRequest, sender: app::Sender
 
 fn clear_all(state: &Rc<RefCell<AppState>>, handles: &Rc<RefCell<UiHandles>>) {
     state.borrow_mut().clear();
+    handles.borrow().nav_cursor.set(None);
     {
         let handles = handles.borrow();
         let mut left_buffer = handles.left_buffer.clone();
@@ -797,6 +824,56 @@ fn sync_state_from_buffers(state: &Rc<RefCell<AppState>>, handles: &Rc<RefCell<U
     state.set_right(right);
 }
 
+fn navigate_change(
+    state: &Rc<RefCell<AppState>>,
+    handles: &Rc<RefCell<UiHandles>>,
+    forward: bool,
+) {
+    let regions = handles.borrow().diff_view.borrow().change_regions();
+    let total = regions.len();
+    if total == 0 {
+        return;
+    }
+    let target = match handles.borrow().nav_cursor.get() {
+        None => 0,
+        Some(current) => {
+            if forward {
+                (current + 1) % total
+            } else {
+                (current + total - 1) % total
+            }
+        }
+    };
+    let start_row = regions[target].start;
+    handles.borrow().nav_cursor.set(Some(target));
+    state
+        .borrow_mut()
+        .set_status(format!("Change {} of {}.", target + 1, total));
+    render_state(state, handles);
+    let mut scroll = handles.borrow().diff_scroll.clone();
+    let view = handles.borrow().diff_view.borrow().clone();
+    scroll_to_change(&mut scroll, &view, start_row);
+}
+
+fn scroll_to_change(
+    scroll: &mut Scroll,
+    view: &crate::diff_view::RenderedDiffView,
+    start_row: usize,
+) {
+    let canvas_height = diff_canvas_height(view.rows.len());
+    let viewport = scroll.h();
+    let max_y = (canvas_height - viewport).max(0);
+    // Bring the region's first row to the top with one row of context above it.
+    let mut target_y = DIFF_HEADER_HEIGHT + start_row as i32 * DIFF_ROW_HEIGHT - DIFF_ROW_HEIGHT;
+    if target_y < 0 {
+        target_y = 0;
+    }
+    if target_y > max_y {
+        target_y = max_y;
+    }
+    scroll.scroll_to(scroll.xposition(), target_y);
+}
+
 fn render_state(state: &Rc<RefCell<AppState>>, handles: &Rc<RefCell<UiHandles>>) {
     let state = state.borrow();
     let handles = handles.borrow();
@@ -822,6 +899,17 @@ fn render_state(state: &Rc<RefCell<AppState>>, handles: &Rc<RefCell<UiHandles>>)
         copy_diff.activate();
     } else {
         copy_diff.deactivate();
+    }
+
+    let can_navigate = state.has_current_diff() && !view.change_regions().is_empty();
+    let mut prev_change = handles.prev_change.clone();
+    let mut next_change = handles.next_change.clone();
+    if can_navigate {
+        prev_change.activate();
+        next_change.activate();
+    } else {
+        prev_change.deactivate();
+        next_change.deactivate();
     }
 }
 
