@@ -47,6 +47,7 @@ struct Palette {
     inline_insert_bg: Color,
     inline_delete_bg: Color,
     header_bg: Color,
+    selection: Color,
 }
 
 const ACTION_BAR_HEIGHT: i32 = 34;
@@ -75,6 +76,7 @@ const DIFF_HEADER_HEIGHT: i32 = 24;
 const DIFF_ROW_HEIGHT: i32 = 22;
 const DIFF_CANVAS_MIN_WIDTH: i32 = 760;
 const DIFF_TEXT_LEFT_PAD: i32 = 10;
+const SELECTION_STRIP_WIDTH: i32 = 5;
 
 fn diff_options_from_config(overrides: &crate::config::DiffOverrides) -> DiffOptions {
     let mut o = DiffOptions::default();
@@ -250,6 +252,7 @@ pub fn run() -> Result<(), FltkError> {
         palette,
         initial_diff_view.clone(),
         stale_diff_notice.clone(),
+        nav_cursor.clone(),
     );
     let mut overview_rail = Frame::default();
     overview_rail.set_frame(FrameType::FlatBox);
@@ -611,6 +614,7 @@ fn make_diff_canvas(
     palette: Palette,
     view: Rc<RefCell<crate::diff_view::RenderedDiffView>>,
     stale_notice: Rc<Cell<bool>>,
+    nav_cursor: Rc<Cell<Option<usize>>>,
 ) -> (Scroll, Frame) {
     let mut scroll = Scroll::default();
     scroll.set_type(ScrollType::Both);
@@ -627,7 +631,14 @@ fn make_diff_canvas(
     canvas.draw({
         let view = view.clone();
         let stale_notice = stale_notice.clone();
-        move |frame| draw_diff_canvas(frame, &view.borrow(), stale_notice.get(), palette)
+        let nav_cursor = nav_cursor.clone();
+        move |frame| {
+            let view = view.borrow();
+            let highlight = nav_cursor
+                .get()
+                .and_then(|idx| view.change_regions().get(idx).cloned());
+            draw_diff_canvas(frame, &view, stale_notice.get(), highlight, palette)
+        }
     });
     scroll.end();
     (scroll, canvas)
@@ -1041,6 +1052,7 @@ fn draw_diff_canvas(
     frame: &Frame,
     view: &crate::diff_view::RenderedDiffView,
     stale_notice: bool,
+    highlight: Option<std::ops::Range<usize>>,
     palette: Palette,
 ) {
     draw::set_draw_color(palette.pane);
@@ -1057,6 +1069,13 @@ fn draw_diff_canvas(
     for row in &view.rows {
         draw_diff_row(frame, y, row, palette);
         y += DIFF_ROW_HEIGHT;
+    }
+
+    if let Some(region) = highlight {
+        let top = frame.y() + DIFF_HEADER_HEIGHT + region.start as i32 * DIFF_ROW_HEIGHT;
+        let bottom = frame.y() + DIFF_HEADER_HEIGHT + region.end as i32 * DIFF_ROW_HEIGHT;
+        draw::set_draw_color(palette.selection);
+        draw::draw_rectf(frame.x(), top, SELECTION_STRIP_WIDTH, bottom - top);
     }
 }
 
@@ -1403,6 +1422,7 @@ fn palette_for(theme: Theme) -> Palette {
             inline_insert_bg: Color::from_rgb(196, 231, 207),
             inline_delete_bg: Color::from_rgb(239, 199, 187),
             header_bg: Color::from_rgb(240, 238, 232), // #F0EEE8
+            selection: Color::from_rgb(200, 216, 217), // #C8D8D9
         },
         Theme::Dark => Palette {
             surface: Color::from_rgb(31, 33, 30),
@@ -1424,6 +1444,7 @@ fn palette_for(theme: Theme) -> Palette {
             inline_insert_bg: Color::from_rgb(49, 87, 59),
             inline_delete_bg: Color::from_rgb(91, 48, 38),
             header_bg: Color::from_rgb(46, 49, 42), // #2E312A
+            selection: Color::from_rgb(54, 86, 90), // #36565A
         },
     }
 }
