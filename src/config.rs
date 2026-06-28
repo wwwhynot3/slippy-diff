@@ -22,6 +22,7 @@ pub struct AppConfig {
     pub width: i32,
     pub height: i32,
     pub vertical_split: f32,
+    pub pinned: bool,
     pub theme: Theme,
     pub ui_font: String,
     pub mono_font: String,
@@ -102,6 +103,7 @@ impl Default for AppConfig {
             width: DEFAULT_WIDTH,
             height: DEFAULT_HEIGHT,
             vertical_split: DEFAULT_VERTICAL_SPLIT,
+            pinned: false,
             theme: Theme::System,
             ui_font: String::new(),
             mono_font: String::new(),
@@ -175,6 +177,7 @@ mod tests {
         assert_eq!(config.width, DEFAULT_WIDTH);
         assert_eq!(config.height, DEFAULT_HEIGHT);
         assert_eq!(config.vertical_split, DEFAULT_VERTICAL_SPLIT);
+        assert!(!config.pinned);
         assert_eq!(config.theme, Theme::System);
         assert!(config.ui_font.is_empty());
         assert!(config.mono_font.is_empty());
@@ -309,5 +312,34 @@ mod tests {
         let loaded = load_config_from_path(path).config;
         assert_eq!(loaded.diff.inline_max_changed_ratio, None);
         assert_eq!(loaded.diff.alignment_band, None);
+    }
+
+    #[test]
+    fn pinned_round_trips_through_save_load() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let path = temp.path().join("config.json");
+        let config = AppConfig {
+            pinned: true,
+            ..AppConfig::default()
+        };
+        save_config_to_path(&path, &config).expect("save config");
+        let loaded = load_config_from_path(path).config;
+        assert!(loaded.pinned);
+    }
+
+    #[test]
+    fn missing_pinned_defaults_to_false() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let path = temp.path().join("config.json");
+        fs::write(
+            &path,
+            r#"{
+                "version": 1, "width": 1120, "height": 760, "vertical_split": 0.45,
+                "theme": "System", "ui_font": "", "mono_font": ""
+            }"#,
+        )
+        .expect("write config");
+        let loaded = load_config_from_path(path).config;
+        assert!(!loaded.pinned);
     }
 }

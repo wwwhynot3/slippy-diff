@@ -122,11 +122,12 @@ State rules:
 
 `config`:
 
-- Store `version`, `width`, `height`, `vertical_split`, `theme`, `ui_font`, and `mono_font`.
+- Store `version`, `width`, `height`, `vertical_split`, `pinned`, `theme`, `ui_font`, and `mono_font`.
 - Use the OS config directory via `directories` with app identity `dev.wwwhynot3.slippy` / `Slippy`.
 - Default window is 1120x760.
 - Minimum window is 720x520.
-- `vertical_split` defaults to 0.45 and clamps to 0.30-0.70.
+- `vertical_split` defaults to 0.45 and clamps to 0.30-0.70; adjusted live by dragging the sash between the input and diff areas and persisted on close.
+- `pinned` defaults to `false`; when `true` the window opens always-on-top and the Pin button reflects that state on launch.
 - Theme enum is `System`, `Light`, or `Dark`; default is `System`.
 - `AppConfig.diff: DiffOverrides` carries optional overrides for every `DiffOptions` field; `sanitized()` clamps values before the bridge applies them.
 - Invalid or missing config returns defaults and reports status.
@@ -374,7 +375,7 @@ Build verification:
 - File or directory diff.
 - Clipboard watcher or automatic clipboard read.
 - Background daemon, tray app, or global shortcut listener.
-- Built-in always-on-top behavior.
+- Custom/compositor-specific always-on-top (use the OS window-manager hint instead).
 - Side-by-side aligned diff.
 - Syntax highlighting.
 - Inline word diff.

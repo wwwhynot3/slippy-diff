@@ -9,7 +9,7 @@ use fltk::{
     app,
     button::Button,
     draw,
-    enums::{Align, Color, Event, Font, FrameType, Shortcut},
+    enums::{Align, Color, Cursor, Event, Font, FrameType, Shortcut},
     frame::Frame,
     group::{Flex, FlexType, Scroll, ScrollType},
     prelude::*,
@@ -20,8 +20,8 @@ use fltk::{
 use crate::{
     app_state::{AppState, STATUS_CLEARED},
     config::{
-        AppConfig, ConfigLoadStatus, MIN_HEIGHT, MIN_WIDTH, Theme, config_path,
-        load_config_from_path, save_config_to_path,
+        AppConfig, ConfigLoadStatus, MAX_VERTICAL_SPLIT, MIN_HEIGHT, MIN_WIDTH,
+        MIN_VERTICAL_SPLIT, Theme, config_path, load_config_from_path, save_config_to_path,
     },
     diff_core::{DiffOptions, render_unified_diff},
 };
@@ -33,6 +33,7 @@ struct Palette {
     text: Color,
     muted: Color,
     border: Color,
+    divider: Color,
     primary: Color,
     primary_text: Color,
     insert_text: Color,
@@ -49,19 +50,28 @@ struct Palette {
 }
 
 const ACTION_BAR_HEIGHT: i32 = 34;
+const SASH_HEIGHT: i32 = 3;
 const DIFF_TOOLBAR_HEIGHT: i32 = 32;
 const OVERVIEW_RAIL_WIDTH: i32 = 14;
 const STATUS_BAR_HEIGHT: i32 = 26;
+const ACTION_BAR_HEIGHT_COMPACT: i32 = 26;
+const DIFF_TOOLBAR_HEIGHT_COMPACT: i32 = 24;
+const STATUS_BAR_HEIGHT_COMPACT: i32 = 20;
+const COMPACT_WINDOW_HEIGHT: i32 = 640;
+const CHROME_FONT_SIZE: i32 = 13;
+const CHROME_FONT_SIZE_COMPACT: i32 = 11;
+const ROOT_MARGIN_COMPACT: i32 = 4;
+const ROOT_PAD_COMPACT: i32 = 4;
 const ROOT_MARGIN: i32 = 8;
 const ROOT_PAD: i32 = 8;
-const PANE_GAP: i32 = 8;
+const PANE_GAP: i32 = 4;
 const STACK_INPUT_WIDTH: i32 = 760;
 const INPUT_GUTTER_WIDTH: i32 = 48;
 const INPUT_LINE_HEIGHT: i32 = 18;
 const DIFF_OLD_GUTTER_WIDTH: i32 = 52;
 const DIFF_NEW_GUTTER_WIDTH: i32 = 52;
 const DIFF_MARKER_WIDTH: i32 = 26;
-const DIFF_HEADER_HEIGHT: i32 = 28;
+const DIFF_HEADER_HEIGHT: i32 = 24;
 const DIFF_ROW_HEIGHT: i32 = 22;
 const DIFF_CANVAS_MIN_WIDTH: i32 = 760;
 const DIFF_TEXT_LEFT_PAD: i32 = 10;
@@ -145,7 +155,12 @@ pub fn run() -> Result<(), FltkError> {
     app::foreground(fg_r, fg_g, fg_b);
     let debounce_generation = Rc::new(Cell::new(0_u64));
     let suppress_buffer_events = Rc::new(Cell::new(false));
-    let pinned = Rc::new(Cell::new(false));
+    let pinned = Rc::new(Cell::new(config.config.pinned));
+    let initial_compact = chrome_compact(config.config.height);
+    let input_height = Rc::new(Cell::new(input_height_for(
+        config.config.height,
+        config.config.vertical_split,
+    )));
     let (sender, receiver) = app::channel::<UiMessage>();
 
     let mut window = Window::default()
@@ -156,18 +171,26 @@ pub fn run() -> Result<(), FltkError> {
     window.set_color(palette.surface);
 
     let mut root = Flex::default_fill().column();
-    root.set_margin(ROOT_MARGIN);
-    root.set_pad(ROOT_PAD);
+    root.set_margin(root_margin(initial_compact));
+    root.set_pad(root_pad(initial_compact));
 
     let mut input_row = Flex::default();
     input_row.set_type(input_flex_type(config.config.width));
     input_row.set_pad(PANE_GAP);
+    // Fill the input row with the border color so the gap between the two panes
+    // reads as a clear divider (the panes themselves cover the rest).
+    input_row.set_frame(FrameType::FlatBox);
+    input_row.set_color(palette.divider);
 
     let (mut left_editor, left_buffer, left_gutter, left_gutter_top_line) =
         make_editor_pane("Left input", palette);
     let (right_editor, right_buffer, right_gutter, right_gutter_top_line) =
         make_editor_pane("Right input", palette);
     input_row.end();
+
+    let mut sash = Frame::default();
+    sash.set_frame(FrameType::FlatBox);
+    sash.set_color(palette.header_bg);
 
     let mut actions = Flex::default().row();
     actions.set_pad(6);
@@ -196,7 +219,7 @@ pub fn run() -> Result<(), FltkError> {
     prev_change.deactivate();
     let mut next_change = make_button("Next", false, palette);
     next_change.deactivate();
-    let mut pin = make_button(pin_button_label(false), false, palette);
+    let mut pin = make_button(pin_button_label(pinned.get()), false, palette);
     pin.set_shortcut(Shortcut::Command | Shortcut::Shift | 'p');
     pin.set_tooltip("Keep the Slippy window above other windows");
     let mut diff_summary = Frame::default().with_label("0 removed  0 added  0 edited");
@@ -232,7 +255,7 @@ pub fn run() -> Result<(), FltkError> {
     diff_body.fixed(&overview_rail, OVERVIEW_RAIL_WIDTH);
     diff_body.end();
 
-    diff_container.fixed(&diff_toolbar, DIFF_TOOLBAR_HEIGHT);
+    diff_container.fixed(&diff_toolbar, diff_toolbar_height(initial_compact));
     diff_container.end();
 
     let mut status = Frame::default().with_label(state.borrow().status());
@@ -242,30 +265,108 @@ pub fn run() -> Result<(), FltkError> {
     status.set_label_size(13);
     status.set_align(fltk::enums::Align::Left | fltk::enums::Align::Inside);
 
-    root.fixed(
-        &input_row,
-        input_height_for(config.config.height, config.config.vertical_split),
-    );
-    root.fixed(&actions, ACTION_BAR_HEIGHT);
-    root.fixed(&status, STATUS_BAR_HEIGHT);
+    root.fixed(&input_row, input_height.get());
+    root.fixed(&sash, SASH_HEIGHT);
+    root.fixed(&actions, action_bar_height(initial_compact));
+    root.fixed(&status, status_bar_height(initial_compact));
     root.end();
 
     {
+        // Action-bar buttons shrink in both height (via the bar) and font when the
+        // window is short, so their label size is driven by the compact mode.
+        let mut chrome_buttons: Vec<Button> = vec![
+            paste_left.clone(),
+            paste_right.clone(),
+            compare.clone(),
+            swap.clone(),
+            clear.clone(),
+            copy_diff.clone(),
+        ];
+        for button in &mut chrome_buttons {
+            button.set_label_size(chrome_font_size(initial_compact));
+        }
+
         let mut responsive_inputs = input_row.clone();
         let mut responsive_diff_scroll = diff_scroll.clone();
         let mut responsive_diff_canvas = diff_canvas.clone();
+        let mut responsive_root = root.clone();
+        let responsive_actions = actions.clone();
+        let mut responsive_diff_container = diff_container.clone();
+        let responsive_diff_toolbar = diff_toolbar.clone();
+        let responsive_status = status.clone();
+        // Relayout the input row on every resize event so its panes stay in sync
+        // (skipping this caused redraw artifacts/flicker). Compact chrome toggles
+        // only when the short-window threshold is crossed; the fixed-size and
+        // margin changes are applied by FLTK's resize cascade after this returns.
+        let compact = Rc::new(Cell::new(initial_compact));
         window.handle(move |win, event| {
             if event == Event::Resize {
                 responsive_inputs.set_type(input_flex_type(win.w()));
                 responsive_inputs.layout();
+                let now_compact = chrome_compact(win.h());
+                if compact.replace(now_compact) != now_compact {
+                    let font_size = chrome_font_size(now_compact);
+                    for button in &mut chrome_buttons {
+                        button.set_label_size(font_size);
+                    }
+                    responsive_root.set_margin(root_margin(now_compact));
+                    responsive_root.set_pad(root_pad(now_compact));
+                    responsive_root
+                        .fixed(&responsive_actions, action_bar_height(now_compact));
+                    responsive_diff_container
+                        .fixed(&responsive_diff_toolbar, diff_toolbar_height(now_compact));
+                    responsive_root.fixed(&responsive_status, status_bar_height(now_compact));
+                }
                 resize_diff_canvas(&mut responsive_diff_scroll, &mut responsive_diff_canvas);
             }
             false
         });
     }
 
+    {
+        let input_height = input_height.clone();
+        let sash_input_row = input_row.clone();
+        let mut sash_root = root.clone();
+        let mut sash_window = window.clone();
+        let drag_start_y = Rc::new(Cell::new(0));
+        let drag_start_h = Rc::new(Cell::new(0));
+        sash.handle(move |_, event| match event {
+            Event::Enter => {
+                sash_window.set_cursor(Cursor::NS);
+                true
+            }
+            Event::Leave => {
+                sash_window.set_cursor(Cursor::Arrow);
+                true
+            }
+            Event::Push => {
+                drag_start_y.set(app::event_y_root());
+                drag_start_h.set(input_height.get());
+                true
+            }
+            Event::Drag => {
+                let delta = app::event_y_root() - drag_start_y.get();
+                let avail = available_input_height(sash_window.height());
+                let min = ((avail as f32) * MIN_VERTICAL_SPLIT).round() as i32;
+                let max = ((avail as f32) * MAX_VERTICAL_SPLIT).round() as i32;
+                let new_h = (drag_start_h.get() + delta).clamp(min, max);
+                input_height.set(new_h);
+                sash_root.fixed(&sash_input_row, new_h);
+                sash_root.layout();
+                sash_window.redraw();
+                true
+            }
+            Event::Released => true,
+            _ => false,
+        });
+    }
+
     window.end();
     window.show();
+
+    if pinned.get() {
+        window.set_on_top();
+    }
 
     left_editor.take_focus().ok();
 
@@ -427,6 +528,8 @@ pub fn run() -> Result<(), FltkError> {
         let mut next_config = config.config;
         next_config.width = window.width();
         next_config.height = window.height();
+        next_config.pinned = pinned.get();
+        next_config.vertical_split = split_for_input_height(input_height.get(), window.height());
         if save_config_to_path(path, &next_config).is_err() {
             state
                 .borrow_mut()
@@ -904,7 +1007,7 @@ fn draw_diff_header(frame: &Frame, stale_notice: bool, palette: Palette) {
     let marker_x = new_x + DIFF_NEW_GUTTER_WIDTH;
     let text_x = marker_x + DIFF_MARKER_WIDTH;
     draw::draw_text2(
-        "OLD",
+        "LEFT",
         old_x,
         frame.y(),
         DIFF_OLD_GUTTER_WIDTH - 8,
@@ -912,7 +1015,7 @@ fn draw_diff_header(frame: &Frame, stale_notice: bool, palette: Palette) {
         Align::Right | Align::Inside,
     );
     draw::draw_text2(
-        "NEW",
+        "RIGHT",
         new_x,
         frame.y(),
         DIFF_NEW_GUTTER_WIDTH - 8,
@@ -1118,10 +1221,76 @@ fn input_flex_type(width: i32) -> FlexType {
     }
 }
 
+fn chrome_compact(window_height: i32) -> bool {
+    window_height < COMPACT_WINDOW_HEIGHT
+}
+
+fn action_bar_height(compact: bool) -> i32 {
+    if compact {
+        ACTION_BAR_HEIGHT_COMPACT
+    } else {
+        ACTION_BAR_HEIGHT
+    }
+}
+
+fn diff_toolbar_height(compact: bool) -> i32 {
+    if compact {
+        DIFF_TOOLBAR_HEIGHT_COMPACT
+    } else {
+        DIFF_TOOLBAR_HEIGHT
+    }
+}
+
+fn status_bar_height(compact: bool) -> i32 {
+    if compact {
+        STATUS_BAR_HEIGHT_COMPACT
+    } else {
+        STATUS_BAR_HEIGHT
+    }
+}
+
+fn chrome_font_size(compact: bool) -> i32 {
+    if compact {
+        CHROME_FONT_SIZE_COMPACT
+    } else {
+        CHROME_FONT_SIZE
+    }
+}
+
+fn root_margin(compact: bool) -> i32 {
+    if compact {
+        ROOT_MARGIN_COMPACT
+    } else {
+        ROOT_MARGIN
+    }
+}
+
+fn root_pad(compact: bool) -> i32 {
+    if compact {
+        ROOT_PAD_COMPACT
+    } else {
+        ROOT_PAD
+    }
+}
+
+fn available_input_height(window_height: i32) -> i32 {
+    // Root Flex children: input_row, sash, actions, diff_container, status
+    // (5 children => 4 inter-child pads), framed by top/bottom margin. The
+    // action/status bars shrink in compact mode (short windows), freeing space.
+    let compact = chrome_compact(window_height);
+    window_height - (root_margin(compact) * 2) - (root_pad(compact) * 4) - SASH_HEIGHT
+        - action_bar_height(compact) - status_bar_height(compact)
+}
+
 fn input_height_for(window_height: i32, vertical_split: f32) -> i32 {
-    let available =
-        window_height - (ROOT_MARGIN * 2) - (ROOT_PAD * 3) - ACTION_BAR_HEIGHT - STATUS_BAR_HEIGHT;
-    ((available.max(1) as f32) * vertical_split).round() as i32
+    ((available_input_height(window_height).max(1) as f32) * vertical_split).round() as i32
+}
+
+/// Inverse of `input_height_for`: convert a live pixel height back into the
+/// persisted `vertical_split` ratio, clamped to the configured range.
+fn split_for_input_height(input_height: i32, window_height: i32) -> f32 {
+    let available = available_input_height(window_height).max(1) as f32;
+    (input_height as f32 / available).clamp(MIN_VERTICAL_SPLIT, MAX_VERTICAL_SPLIT)
 }
 
 fn palette_for(theme: Theme) -> Palette {
@@ -1132,6 +1301,7 @@ fn palette_for(theme: Theme) -> Palette {
             text: Color::from_rgb(37, 35, 31),
             muted: Color::from_rgb(110, 103, 94),
             border: Color::from_rgb(216, 210, 199),
+            divider: Color::from_rgb(228, 222, 211),
             primary: Color::from_rgb(47, 111, 115),
             primary_text: Color::White,
             insert_text: Color::from_rgb(31, 107, 58),
@@ -1152,6 +1322,7 @@ fn palette_for(theme: Theme) -> Palette {
             text: Color::from_rgb(236, 232, 221),
             muted: Color::from_rgb(166, 159, 145),
             border: Color::from_rgb(58, 62, 53),
+            divider: Color::from_rgb(54, 57, 49),
             primary: Color::from_rgb(111, 168, 173),
             primary_text: Color::from_rgb(16, 32, 34),
             insert_text: Color::from_rgb(168, 216, 178),
@@ -1230,6 +1401,24 @@ mod tests {
     }
 
     #[test]
+    fn vertical_split_round_trips_through_input_height() {
+        for &split in &[MIN_VERTICAL_SPLIT, 0.45, 0.55, MAX_VERTICAL_SPLIT] {
+            let px = input_height_for(1000, split);
+            let back = split_for_input_height(px, 1000);
+            assert!(
+                (back - split).abs() < 0.01,
+                "split {split} -> {px}px -> {back}"
+            );
+        }
+    }
+
+    #[test]
+    fn split_for_input_height_clamps_to_configured_range() {
+        assert!((split_for_input_height(0, 1000) - MIN_VERTICAL_SPLIT).abs() < 1e-6);
+        assert!((split_for_input_height(i32::MAX, 1000) - MAX_VERTICAL_SPLIT).abs() < 1e-6);
+    }
+
+    #[test]
     fn overview_rail_label_places_change_markers() {
         use crate::{
             diff_core::{DiffOptions, build_display_diff},
@@ -1259,7 +1448,7 @@ mod tests {
         let view = build_diff_view(&diff, &DiffOptions::default());
         let label = overview_rail_label(&view);
 
-        assert_eq!(label, vec![" "; 12].join("\n"));
+        assert_eq!(label, [" "; 12].join("\n"));
         assert!(!label.contains('-'));
         assert!(!label.contains('+'));
         assert!(!label.contains('~'));

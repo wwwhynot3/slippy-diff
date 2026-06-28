@@ -30,6 +30,8 @@ Layout rules:
 - Default window is 1120x760.
 - Minimum window is 720x520.
 - Under 760px window width, stack the two input panes vertically while keeping the action bar between inputs and diff.
+- A draggable sash between the input area and the diff area adjusts their relative heights; the position is persisted as `vertical_split`.
+- On short windows the action bar, diff toolbar, and status bar switch to compact heights with a smaller action-button font, giving the inputs and diff more vertical room.
 - The action bar remains a single row; the minimum width is chosen to prevent ordinary label overflow.
 
 ## Action Bar
@@ -79,7 +81,7 @@ Line-level diff coloring is required:
 - Input panes keep FLTK `TextEditor` behavior for editing, selection, clipboard, undo, and IME, but use custom-drawn line-number gutters beside the editors.
 - Replacement blocks pair similar deleted and inserted lines before rendering; paired rows use a neutral block background with `~` markers and stronger red/green token highlights for the exact changed fragments.
 - The old/new gutters are semantic references: inserted rows leave the old line blank, deleted rows leave the new line blank, and later context rows may show offset line numbers.
-- The rendered review header shows `OLD  NEW  K | Text` above the diff rows, with a separator beneath it.
+- The rendered review header shows `LEFT  RIGHT  K | Text` above the diff rows, with a separator beneath it.
 - `---` and `+++` header lines are part of the plain unified diff text emitted by Copy Diff.
 - Preserve visible marker and line-number gutters so the diff remains understandable even if colors are hard to distinguish.
 - An entirely uncolored or blank rendered diff is a defect unless FLTK drawing is proven impossible during build verification.
