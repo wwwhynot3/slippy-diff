@@ -200,6 +200,7 @@ Keyboard shortcuts:
 | Ctrl/Cmd+Shift+C | Copy Diff |
 | Ctrl/Cmd+Shift+Up | Previous change |
 | Ctrl/Cmd+Shift+Down | Next change |
+| Ctrl/Cmd+Shift+T | Cycle theme (System / Light / Dark) |
 
 Use Cmd on macOS where FLTK supports it and Ctrl elsewhere. If FLTK cannot map Cmd cleanly, keep Ctrl working and document the limitation.
 

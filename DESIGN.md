@@ -63,6 +63,7 @@ Shortcuts:
 - `Ctrl/Cmd+Shift+P`: Toggle Pin
 - `Ctrl/Cmd+Shift+Up`: Previous change
 - `Ctrl/Cmd+Shift+Down`: Next change
+- `Ctrl/Cmd+Shift+T`: Cycle theme (System / Light / Dark)
 
 Use Cmd on macOS where FLTK supports it and Ctrl elsewhere. If FLTK cannot map Cmd cleanly, keep Ctrl working and document the limitation.
 
@@ -73,8 +74,8 @@ Use the system UI font for controls and the system monospace font for editors an
 Theme support:
 
 - `System` is the default.
-- `Light` and `Dark` can be selected through config.
-- No toolbar or menu theme switcher in v1.
+- `Light` and `Dark` can be set through config or cycled live with the **Theme** toolbar button (`Ctrl/Cmd+Shift+T`); the choice persists as `theme`.
+- The Theme button re-colors the entire window immediately (live switch), including the custom-drawn diff canvas and gutters.
 
 Line-level diff coloring is required:
 
@@ -136,6 +137,7 @@ Density:
 | Pin enabled | Preserve current diff | `Pinned above other windows.` |
 | Pin disabled | Preserve current diff | `Pin cleared. Some window managers keep native topmost until refocus.` |
 | Prev/Next navigation | Preserve current diff | `Change N of M.` |
+| Theme cycled | Re-color whole window | `Theme: System/Light/Dark.` |
 
 ## Accessibility Basics
 

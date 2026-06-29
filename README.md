@@ -20,7 +20,7 @@ Built with Rust and [`fltk-rs`](https://github.com/fltk-rs/fltk-rs).
 - **Pin toggle** keeps the window above other windows where the native window manager supports FLTK's topmost request.
 - **Debounced auto-diff** (300 ms) for normal-sized edits.
 - **Manual Compare** for large input — combined size above 256 KiB or 8,000 lines skips auto-diff and asks you to compare explicitly.
-- **Themes**: System / Light / Dark (config-only).
+- **Themes**: System / Light / Dark, switchable live via the Theme toolbar button (`Ctrl/Cmd+Shift+T`) or config.
 - **Status bar** reflecting the current state (ready, pending, running, updated, large-input notice, paste/copy failures).
 - **Privacy**: only UI metadata (window size, split, theme, fonts) is persisted. Pasted text and diff output are **never** stored to disk.
 
@@ -101,6 +101,7 @@ Wayland additionally needs `wayland`, `wayland-protocols`, and `libxkbcommon` (o
 | `Ctrl/Cmd+Shift+P` | Toggle Pin |
 | `Ctrl/Cmd+Shift+↑` | Previous change |
 | `Ctrl/Cmd+Shift+↓` | Next change |
+| `Ctrl/Cmd+Shift+T` | Cycle theme |
 
 FLTK maps `Cmd` on macOS and `Ctrl` on Linux/Windows through `Shortcut::Command`.
 

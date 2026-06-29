@@ -125,6 +125,7 @@ struct UiHandles {
     status: Frame,
     copy_diff: Button,
     pin: Button,
+    theme_btn: Button,
     prev_change: Button,
     next_change: Button,
     nav_cursor: Rc<Cell<Option<usize>>>,
@@ -160,6 +161,8 @@ pub fn run() -> Result<(), FltkError> {
     let (fg_r, fg_g, fg_b) = rgb(palette.text);
     app::background(bg_r, bg_g, bg_b);
     app::foreground(fg_r, fg_g, fg_b);
+    let theme = Rc::new(Cell::new(config.config.theme));
+    let palette_cell = Rc::new(Cell::new(palette));
     let debounce_generation = Rc::new(Cell::new(0_u64));
     let suppress_buffer_events = Rc::new(Cell::new(false));
     let pinned = Rc::new(Cell::new(config.config.pinned));
@@ -190,9 +193,9 @@ pub fn run() -> Result<(), FltkError> {
     input_row.set_color(palette.divider);
 
     let (mut left_editor, left_buffer, left_gutter, left_gutter_top_line) =
-        make_editor_pane("Left input", palette);
+        make_editor_pane("Left input", palette_cell.clone());
     let (right_editor, right_buffer, right_gutter, right_gutter_top_line) =
-        make_editor_pane("Right input", palette);
+        make_editor_pane("Right input", palette_cell.clone());
     input_row.end();
 
     let mut sash = Frame::default();
@@ -231,6 +234,9 @@ pub fn run() -> Result<(), FltkError> {
     let mut pin = make_button(pin_button_label(pinned.get()), false, palette);
     pin.set_shortcut(Shortcut::Command | Shortcut::Shift | 'p');
     pin.set_tooltip("Keep the Slippy window above other windows");
+    let mut theme_btn = make_button(theme_label(theme.get()), false, palette);
+    theme_btn.set_shortcut(Shortcut::Command | Shortcut::Shift | 't');
+    theme_btn.set_tooltip("Cycle theme: System / Light / Dark");
     let mut diff_summary = Frame::default().with_label("0 removed  0 added  0 edited");
     diff_summary.set_frame(FrameType::FlatBox);
     diff_summary.set_color(palette.header_bg);
@@ -241,6 +247,7 @@ pub fn run() -> Result<(), FltkError> {
     diff_toolbar.fixed(&prev_change, 58);
     diff_toolbar.fixed(&next_change, 58);
     diff_toolbar.fixed(&pin, 66);
+    diff_toolbar.fixed(&theme_btn, 108);
     diff_toolbar.end();
 
     let mut diff_body = Flex::default().row();
@@ -252,7 +259,7 @@ pub fn run() -> Result<(), FltkError> {
     let nav_cursor = Rc::new(Cell::new(Option::<usize>::None));
     let selection = Rc::new(Cell::new(None));
     let (diff_scroll, diff_canvas) = make_diff_canvas(
-        palette,
+        palette_cell.clone(),
         initial_diff_view.clone(),
         stale_diff_notice.clone(),
         nav_cursor.clone(),
@@ -405,6 +412,7 @@ pub fn run() -> Result<(), FltkError> {
         status,
         copy_diff: copy_diff.clone(),
         pin: pin.clone(),
+        theme_btn: theme_btn.clone(),
         prev_change: prev_change.clone(),
         next_change: next_change.clone(),
         nav_cursor: nav_cursor.clone(),
@@ -506,6 +514,89 @@ pub fn run() -> Result<(), FltkError> {
             let next = !pinned.get();
             pinned.set(next);
             apply_pin_state(&state, &handles, &mut window, next);
+        });
+    }
+
+    {
+        let theme = theme.clone();
+        let palette_cell = palette_cell.clone();
+        let state = state.clone();
+        let handles = handles.clone();
+        let mut window = window.clone();
+        let mut input_row = input_row.clone();
+        let mut sash = sash.clone();
+        let mut diff_mode = diff_mode.clone();
+        let mut paste_left = paste_left.clone();
+        let mut paste_right = paste_right.clone();
+        let mut compare = compare.clone();
+        let mut swap = swap.clone();
+        let mut clear = clear.clone();
+        theme_btn.set_callback(move |_| {
+            let next = next_theme(theme.get());
+            theme.set(next);
+            let p = palette_for(next);
+            palette_cell.set(p);
+            let (r, g, b) = rgb(p.surface);
+            app::background(r, g, b);
+            let (r, g, b) = rgb(p.text);
+            app::foreground(r, g, b);
+
+            window.set_color(p.surface);
+            input_row.set_color(p.divider);
+            sash.set_color(p.header_bg);
+            diff_mode.set_color(p.header_bg);
+            diff_mode.set_label_color(p.text);
+
+            paste_left.set_color(p.secondary_button);
+            paste_left.set_label_color(p.text);
+            paste_right.set_color(p.secondary_button);
+            paste_right.set_label_color(p.text);
+            swap.set_color(p.secondary_button);
+            swap.set_label_color(p.text);
+            clear.set_color(p.secondary_button);
+            clear.set_label_color(p.text);
+            compare.set_color(p.primary);
+            compare.set_label_color(p.primary_text);
+
+            {
+                let h = handles.borrow();
+                h.theme_btn.clone().set_label(theme_label(next));
+                let mut ds = h.diff_summary.clone();
+                ds.set_color(p.header_bg);
+                ds.set_label_color(p.muted);
+                let mut rail = h.overview_rail.clone();
+                rail.set_color(p.header_bg);
+                rail.set_label_color(p.muted);
+                let mut status = h.status.clone();
+                status.set_color(p.status_bg);
+                status.set_label_color(p.muted);
+                let mut scroll = h.diff_scroll.clone();
+                scroll.set_color(p.pane);
+                for mut btn in [
+                    h.copy_diff.clone(),
+                    h.pin.clone(),
+                    h.prev_change.clone(),
+                    h.next_change.clone(),
+                    h.theme_btn.clone(),
+                ] {
+                    btn.set_color(p.secondary_button);
+                    btn.set_label_color(p.text);
+                }
+                let mut le = h.left_editor.clone();
+                le.set_color(p.pane);
+                le.set_text_color(p.text);
+                le.redraw();
+                let mut re = h.right_editor.clone();
+                re.set_color(p.pane);
+                re.set_text_color(p.text);
+                re.redraw();
+            }
+
+            window.redraw();
+            state
+                .borrow_mut()
+                .set_status(format!("{}.", theme_label(next)));
+            render_state(&state, &handles);
         });
     }
 
@@ -627,6 +718,7 @@ pub fn run() -> Result<(), FltkError> {
         next_config.width = window.width();
         next_config.height = window.height();
         next_config.pinned = pinned.get();
+        next_config.theme = theme.get();
         next_config.vertical_split = split_for_input_height(input_height.get(), window.height());
         if save_config_to_path(path, &next_config).is_err() {
             state
@@ -640,12 +732,13 @@ pub fn run() -> Result<(), FltkError> {
 
 fn make_editor_pane(
     label: &str,
-    palette: Palette,
+    palette_cell: Rc<Cell<Palette>>,
 ) -> (TextEditor, TextBuffer, Frame, Rc<Cell<i32>>) {
+    let palette = palette_cell.get();
     let mut pane = Flex::default().row();
     pane.set_pad(0);
 
-    let (gutter, buffer_for_gutter, top_line_for_gutter) = make_input_gutter(palette);
+    let (gutter, buffer_for_gutter, top_line_for_gutter) = make_input_gutter(palette_cell.clone());
     let mut editor = TextEditor::default();
     let buffer = TextBuffer::default();
     editor.set_buffer(buffer.clone());
@@ -665,22 +758,25 @@ fn make_editor_pane(
     (editor, buffer, gutter, top_line_for_gutter)
 }
 
-fn make_input_gutter(palette: Palette) -> (Frame, Rc<RefCell<TextBuffer>>, Rc<Cell<i32>>) {
+fn make_input_gutter(
+    palette_cell: Rc<Cell<Palette>>,
+) -> (Frame, Rc<RefCell<TextBuffer>>, Rc<Cell<i32>>) {
     let mut gutter = Frame::default();
     gutter.set_frame(FrameType::FlatBox);
-    gutter.set_color(palette.header_bg);
+    gutter.set_color(palette_cell.get().header_bg);
     let buffer = Rc::new(RefCell::new(TextBuffer::default()));
     let top_line = Rc::new(Cell::new(1));
     gutter.draw({
         let buffer = buffer.clone();
         let top_line = top_line.clone();
-        move |frame| draw_input_gutter(frame, &buffer.borrow(), top_line.get(), palette)
+        let palette_cell = palette_cell.clone();
+        move |frame| draw_input_gutter(frame, &buffer.borrow(), top_line.get(), palette_cell.get())
     });
     (gutter, buffer, top_line)
 }
 
 fn make_diff_canvas(
-    palette: Palette,
+    palette_cell: Rc<Cell<Palette>>,
     view: Rc<RefCell<crate::diff_view::RenderedDiffView>>,
     stale_notice: Rc<Cell<bool>>,
     nav_cursor: Rc<Cell<Option<usize>>>,
@@ -689,7 +785,7 @@ fn make_diff_canvas(
     let mut scroll = Scroll::default();
     scroll.set_type(ScrollType::Both);
     scroll.set_frame(FrameType::FlatBox);
-    scroll.set_color(palette.pane);
+    scroll.set_color(palette_cell.get().pane);
     scroll.set_scrollbar_size(14);
 
     let mut canvas = Frame::default().with_size(
@@ -697,12 +793,13 @@ fn make_diff_canvas(
         diff_canvas_height(view.borrow().rows.len()),
     );
     canvas.set_frame(FrameType::FlatBox);
-    canvas.set_color(palette.pane);
+    canvas.set_color(palette_cell.get().pane);
     canvas.draw({
         let view = view.clone();
         let stale_notice = stale_notice.clone();
         let nav_cursor = nav_cursor.clone();
         let selection = selection.clone();
+        let palette_cell = palette_cell.clone();
         move |frame| {
             let view = view.borrow();
             let highlight = nav_cursor
@@ -714,7 +811,7 @@ fn make_diff_canvas(
                 stale_notice.get(),
                 highlight,
                 selection.get(),
-                palette,
+                palette_cell.get(),
             )
         }
     });
@@ -1532,6 +1629,22 @@ fn input_height_for(window_height: i32, vertical_split: f32) -> i32 {
 fn split_for_input_height(input_height: i32, window_height: i32) -> f32 {
     let available = available_input_height(window_height).max(1) as f32;
     (input_height as f32 / available).clamp(MIN_VERTICAL_SPLIT, MAX_VERTICAL_SPLIT)
+}
+
+fn next_theme(theme: Theme) -> Theme {
+    match theme {
+        Theme::System => Theme::Light,
+        Theme::Light => Theme::Dark,
+        Theme::Dark => Theme::System,
+    }
+}
+
+fn theme_label(theme: Theme) -> &'static str {
+    match theme {
+        Theme::System => "Theme: System",
+        Theme::Light => "Theme: Light",
+        Theme::Dark => "Theme: Dark",
+    }
 }
 
 fn palette_for(theme: Theme) -> Palette {
