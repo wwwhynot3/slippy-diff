@@ -20,10 +20,10 @@ use fltk::{
 use crate::{
     app_state::{AppState, STATUS_CLEARED},
     config::{
-        AppConfig, ConfigLoadStatus, MAX_VERTICAL_SPLIT, MIN_HEIGHT, MIN_WIDTH,
-        MIN_VERTICAL_SPLIT, Theme, config_path, load_config_from_path, save_config_to_path,
+        config_path, load_config_from_path, save_config_to_path, AppConfig, ConfigLoadStatus,
+        Theme, MAX_VERTICAL_SPLIT, MIN_HEIGHT, MIN_VERTICAL_SPLIT, MIN_WIDTH,
     },
-    diff_core::{DiffOptions, render_unified_diff},
+    diff_core::{render_unified_diff, DiffOptions},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -78,6 +78,78 @@ const DIFF_CANVAS_MIN_WIDTH: i32 = 760;
 const DIFF_TEXT_LEFT_PAD: i32 = 10;
 const SELECTION_STRIP_WIDTH: i32 = 5;
 
+fn fltk_scheme_from_name(name: Option<&str>) -> app::Scheme {
+    match name.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
+        Some("base") => app::Scheme::Base,
+        Some("gleam") => app::Scheme::Gleam,
+        Some("plastic") => app::Scheme::Plastic,
+        Some("oxy") => app::Scheme::Oxy,
+        Some("gtk" | "gtk+") | None => app::Scheme::Gtk,
+        Some(_) => app::Scheme::Gtk,
+    }
+}
+
+fn selected_fltk_scheme() -> app::Scheme {
+    fltk_scheme_from_name(std::env::var("SLIPPY_FLTK_SCHEME").ok().as_deref())
+}
+
+// Diagnostic-only switches used to isolate FLTK/compositor resize flicker.
+// Defaults keep the production UI path unchanged; non-default values are for
+// local reproduction and should not be treated as user-facing configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DiffSurfaceMode {
+    Scroll,
+    Plain,
+}
+
+fn diff_surface_mode_from_name(name: Option<&str>) -> DiffSurfaceMode {
+    match name.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
+        Some("plain") => DiffSurfaceMode::Plain,
+        Some("scroll") | Some("") | None => DiffSurfaceMode::Scroll,
+        Some(_) => DiffSurfaceMode::Scroll,
+    }
+}
+
+fn selected_diff_surface_mode() -> DiffSurfaceMode {
+    diff_surface_mode_from_name(std::env::var("SLIPPY_DIFF_SURFACE").ok().as_deref())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SurfaceMode {
+    Full,
+    Minimal,
+}
+
+fn surface_mode_from_name(name: Option<&str>) -> SurfaceMode {
+    match name.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
+        Some("minimal") => SurfaceMode::Minimal,
+        Some("full") | Some("") | None => SurfaceMode::Full,
+        Some(_) => SurfaceMode::Full,
+    }
+}
+
+fn selected_surface_mode() -> SurfaceMode {
+    surface_mode_from_name(std::env::var("SLIPPY_SURFACE_MODE").ok().as_deref())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResizeMode {
+    Responsive,
+    Static,
+}
+
+fn resize_mode_from_name(name: Option<&str>) -> ResizeMode {
+    match name.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
+        Some("static") => ResizeMode::Static,
+        Some("responsive") | Some("") | None => ResizeMode::Responsive,
+        Some(_) => ResizeMode::Responsive,
+    }
+}
+
+fn selected_resize_mode() -> ResizeMode {
+    resize_mode_from_name(std::env::var("SLIPPY_RESIZE_MODE").ok().as_deref())
+}
+
 fn diff_options_from_config(overrides: &crate::config::DiffOverrides) -> DiffOptions {
     let mut o = DiffOptions::default();
     if let Some(v) = overrides.debounce_ms {
@@ -108,6 +180,7 @@ fn diff_options_from_config(overrides: &crate::config::DiffOverrides) -> DiffOpt
 }
 
 struct UiHandles {
+    surface_mode: SurfaceMode,
     left_editor: TextEditor,
     right_editor: TextEditor,
     left_buffer: TextBuffer,
@@ -139,7 +212,7 @@ enum UiMessage {
 }
 
 pub fn run() -> Result<(), FltkError> {
-    let app = app::App::default().with_scheme(app::Scheme::Gtk);
+    let app = app::App::default().with_scheme(selected_fltk_scheme());
 
     let config_file = config_path().ok();
     let config = config_file
@@ -171,16 +244,20 @@ pub fn run() -> Result<(), FltkError> {
         config.config.height,
         config.config.vertical_split,
     )));
+    let surface_mode = selected_surface_mode();
+    let resize_mode = selected_resize_mode();
     let (sender, receiver) = app::channel::<UiMessage>();
 
     let mut window = Window::default()
         .with_size(config.config.width, config.config.height)
         .with_label("Slippy");
-    window.make_resizable(true);
     window.size_range(MIN_WIDTH, MIN_HEIGHT, 0, 0);
     window.set_color(palette.surface);
+    window.set_frame(FrameType::FlatBox);
 
     let mut root = Flex::default_fill().column();
+    root.set_frame(FrameType::FlatBox);
+    root.set_color(palette.surface);
     root.set_margin(root_margin(initial_compact));
     root.set_pad(root_pad(initial_compact));
 
@@ -192,10 +269,22 @@ pub fn run() -> Result<(), FltkError> {
     input_row.set_frame(FrameType::FlatBox);
     input_row.set_color(palette.divider);
 
-    let (mut left_editor, left_buffer, left_gutter, left_gutter_top_line) =
+    let (mut left_pane, mut left_editor, left_buffer, mut left_gutter, left_gutter_top_line) =
         make_editor_pane("Left input", palette_cell.clone());
-    let (right_editor, right_buffer, right_gutter, right_gutter_top_line) =
+    let (mut right_pane, mut right_editor, right_buffer, mut right_gutter, right_gutter_top_line) =
         make_editor_pane("Right input", palette_cell.clone());
+    let mut diagnostic_input_surface = None::<Frame>;
+    if surface_mode == SurfaceMode::Minimal {
+        left_pane.hide();
+        right_pane.hide();
+        left_editor.hide();
+        right_editor.hide();
+        left_gutter.hide();
+        right_gutter.hide();
+        input_row.fixed(&left_pane, 0);
+        input_row.fixed(&right_pane, 0);
+        diagnostic_input_surface = Some(make_plain_input_surface(palette));
+    }
     input_row.end();
 
     let mut sash = Frame::default();
@@ -203,6 +292,8 @@ pub fn run() -> Result<(), FltkError> {
     sash.set_color(palette.header_bg);
 
     let mut actions = Flex::default().row();
+    actions.set_frame(FrameType::FlatBox);
+    actions.set_color(palette.surface);
     actions.set_pad(6);
     let mut paste_left = make_button("Paste Left", false, palette);
     let mut paste_right = make_button("Paste Right", false, palette);
@@ -218,7 +309,11 @@ pub fn run() -> Result<(), FltkError> {
     actions.end();
 
     let mut diff_container = Flex::default().column();
+    diff_container.set_frame(FrameType::FlatBox);
+    diff_container.set_color(palette.pane);
     let mut diff_toolbar = Flex::default().row();
+    diff_toolbar.set_frame(FrameType::FlatBox);
+    diff_toolbar.set_color(palette.header_bg);
     diff_toolbar.set_pad(6);
     let mut diff_mode = Frame::default().with_label("Unified Review");
     diff_mode.set_frame(FrameType::FlatBox);
@@ -251,20 +346,34 @@ pub fn run() -> Result<(), FltkError> {
     diff_toolbar.end();
 
     let mut diff_body = Flex::default().row();
+    diff_body.set_frame(FrameType::FlatBox);
+    diff_body.set_color(palette.pane);
     let initial_diff_view = Rc::new(RefCell::new(crate::diff_view::build_diff_view(
         state.borrow().diff(),
         state.borrow().options(),
     )));
+    let diff_surface_mode = if surface_mode == SurfaceMode::Minimal {
+        DiffSurfaceMode::Plain
+    } else {
+        selected_diff_surface_mode()
+    };
     let stale_diff_notice = Rc::new(Cell::new(false));
     let nav_cursor = Rc::new(Cell::new(Option::<usize>::None));
     let selection = Rc::new(Cell::new(None));
-    let (diff_scroll, diff_canvas) = make_diff_canvas(
+    let (mut diff_scroll, mut diff_canvas) = make_diff_canvas(
         palette_cell.clone(),
         initial_diff_view.clone(),
         stale_diff_notice.clone(),
         nav_cursor.clone(),
         selection.clone(),
     );
+    let mut diagnostic_diff_surface = None::<Frame>;
+    if diff_surface_mode == DiffSurfaceMode::Plain {
+        diff_scroll.hide();
+        diff_canvas.hide();
+        diff_body.fixed(&diff_scroll, 0);
+        diagnostic_diff_surface = Some(make_plain_diff_surface(palette));
+    }
     let mut overview_rail = Frame::default();
     overview_rail.set_frame(FrameType::FlatBox);
     overview_rail.set_color(palette.header_bg);
@@ -272,7 +381,12 @@ pub fn run() -> Result<(), FltkError> {
     overview_rail.set_label_size(11);
     overview_rail.set_label_color(palette.muted);
     overview_rail.set_align(fltk::enums::Align::Top | fltk::enums::Align::Inside);
-    diff_body.fixed(&overview_rail, OVERVIEW_RAIL_WIDTH);
+    if surface_mode == SurfaceMode::Minimal {
+        overview_rail.hide();
+        diff_body.fixed(&overview_rail, 0);
+    } else {
+        diff_body.fixed(&overview_rail, OVERVIEW_RAIL_WIDTH);
+    }
     diff_body.end();
 
     diff_container.fixed(&diff_toolbar, diff_toolbar_height(initial_compact));
@@ -290,8 +404,9 @@ pub fn run() -> Result<(), FltkError> {
     root.fixed(&actions, action_bar_height(initial_compact));
     root.fixed(&status, status_bar_height(initial_compact));
     root.end();
+    window.resizable(&root);
 
-    {
+    if resize_mode == ResizeMode::Responsive {
         // Action-bar buttons shrink in both height (via the bar) and font when the
         // window is short, so their label size is driven by the compact mode.
         let mut chrome_buttons: Vec<Button> = vec![
@@ -307,39 +422,37 @@ pub fn run() -> Result<(), FltkError> {
         }
 
         let mut responsive_inputs = input_row.clone();
-        let mut responsive_diff_scroll = diff_scroll.clone();
-        let mut responsive_diff_canvas = diff_canvas.clone();
         let mut responsive_root = root.clone();
         let responsive_actions = actions.clone();
         let mut responsive_diff_container = diff_container.clone();
         let responsive_diff_toolbar = diff_toolbar.clone();
         let responsive_status = status.clone();
-        // Relayout the input row on every resize event so its panes stay in sync
-        // (skipping this caused redraw artifacts/flicker). Compact chrome toggles
-        // only when the short-window threshold is crossed; the fixed-size and
-        // margin changes are applied by FLTK's resize cascade after this returns.
+        // Keep live window resize free of custom diff canvas resize/redraw. Manual
+        // dragging produces dense resize events and those redraws can expose the
+        // backend's unpainted surface as black flashes.
         let compact = Rc::new(Cell::new(initial_compact));
-        window.handle(move |win, event| {
-            if event == Event::Resize {
-                responsive_inputs.set_type(input_flex_type(win.w()));
+        let input_layout = Rc::new(Cell::new(input_flex_type(config.config.width)));
+        window.resize_callback(move |win, _x, _y, w, h| {
+            let next_input_layout = input_flex_type(w);
+            if input_layout.replace(next_input_layout) != next_input_layout {
+                responsive_inputs.set_type(next_input_layout);
                 responsive_inputs.layout();
-                let now_compact = chrome_compact(win.h());
-                if compact.replace(now_compact) != now_compact {
-                    let font_size = chrome_font_size(now_compact);
-                    for button in &mut chrome_buttons {
-                        button.set_label_size(font_size);
-                    }
-                    responsive_root.set_margin(root_margin(now_compact));
-                    responsive_root.set_pad(root_pad(now_compact));
-                    responsive_root
-                        .fixed(&responsive_actions, action_bar_height(now_compact));
-                    responsive_diff_container
-                        .fixed(&responsive_diff_toolbar, diff_toolbar_height(now_compact));
-                    responsive_root.fixed(&responsive_status, status_bar_height(now_compact));
-                }
-                resize_diff_canvas(&mut responsive_diff_scroll, &mut responsive_diff_canvas);
             }
-            false
+            let now_compact = chrome_compact(h);
+            if compact.replace(now_compact) != now_compact {
+                let font_size = chrome_font_size(now_compact);
+                for button in &mut chrome_buttons {
+                    button.set_label_size(font_size);
+                }
+                responsive_root.set_margin(root_margin(now_compact));
+                responsive_root.set_pad(root_pad(now_compact));
+                responsive_root.fixed(&responsive_actions, action_bar_height(now_compact));
+                responsive_diff_container
+                    .fixed(&responsive_diff_toolbar, diff_toolbar_height(now_compact));
+                responsive_root.fixed(&responsive_status, status_bar_height(now_compact));
+            }
+            responsive_root.redraw();
+            win.redraw();
         });
     }
 
@@ -348,6 +461,8 @@ pub fn run() -> Result<(), FltkError> {
         let sash_input_row = input_row.clone();
         let mut sash_root = root.clone();
         let mut sash_window = window.clone();
+        let mut sash_diff_scroll = diff_scroll.clone();
+        let mut sash_diff_canvas = diff_canvas.clone();
         let drag_start_y = Rc::new(Cell::new(0));
         let drag_start_h = Rc::new(Cell::new(0));
         sash.handle(move |_, event| match event {
@@ -373,6 +488,7 @@ pub fn run() -> Result<(), FltkError> {
                 input_height.set(new_h);
                 sash_root.fixed(&sash_input_row, new_h);
                 sash_root.layout();
+                refresh_diff_canvas_size(&mut sash_diff_scroll, &mut sash_diff_canvas);
                 sash_window.redraw();
                 true
             }
@@ -388,13 +504,16 @@ pub fn run() -> Result<(), FltkError> {
         window.set_on_top();
     }
 
-    left_editor.take_focus().ok();
+    if surface_mode != SurfaceMode::Minimal {
+        left_editor.take_focus().ok();
+    }
 
     // A single long-lived clipboard handle so arboard keeps serving the
     // selection (Linux) until the app exits, instead of dropping it per copy.
     let clipboard = Clipboard::new().ok();
 
     let handles = Rc::new(RefCell::new(UiHandles {
+        surface_mode,
         left_editor,
         right_editor,
         left_buffer,
@@ -525,12 +644,19 @@ pub fn run() -> Result<(), FltkError> {
         let mut window = window.clone();
         let mut input_row = input_row.clone();
         let mut sash = sash.clone();
+        let mut root = root.clone();
+        let mut actions = actions.clone();
+        let mut diff_container = diff_container.clone();
+        let mut diff_toolbar = diff_toolbar.clone();
+        let mut diff_body = diff_body.clone();
         let mut diff_mode = diff_mode.clone();
         let mut paste_left = paste_left.clone();
         let mut paste_right = paste_right.clone();
         let mut compare = compare.clone();
         let mut swap = swap.clone();
         let mut clear = clear.clone();
+        let diagnostic_input_surface = diagnostic_input_surface.clone();
+        let diagnostic_diff_surface = diagnostic_diff_surface.clone();
         theme_btn.set_callback(move |_| {
             let next = next_theme(theme.get());
             theme.set(next);
@@ -542,10 +668,25 @@ pub fn run() -> Result<(), FltkError> {
             app::foreground(r, g, b);
 
             window.set_color(p.surface);
+            root.set_color(p.surface);
             input_row.set_color(p.divider);
             sash.set_color(p.header_bg);
+            actions.set_color(p.surface);
+            diff_container.set_color(p.pane);
+            diff_toolbar.set_color(p.header_bg);
+            diff_body.set_color(p.pane);
             diff_mode.set_color(p.header_bg);
             diff_mode.set_label_color(p.text);
+            if let Some(mut surface) = diagnostic_input_surface.clone() {
+                surface.set_color(p.pane);
+                surface.set_label_color(p.muted);
+                surface.redraw();
+            }
+            if let Some(mut surface) = diagnostic_diff_surface.clone() {
+                surface.set_color(p.pane);
+                surface.set_label_color(p.muted);
+                surface.redraw();
+            }
 
             paste_left.set_color(p.secondary_button);
             paste_left.set_label_color(p.text);
@@ -582,14 +723,20 @@ pub fn run() -> Result<(), FltkError> {
                     btn.set_color(p.secondary_button);
                     btn.set_label_color(p.text);
                 }
-                let mut le = h.left_editor.clone();
-                le.set_color(p.pane);
-                le.set_text_color(p.text);
-                le.redraw();
-                let mut re = h.right_editor.clone();
-                re.set_color(p.pane);
-                re.set_text_color(p.text);
-                re.redraw();
+                if h.surface_mode == SurfaceMode::Full {
+                    let mut left_pane = h.left_editor.parent().unwrap();
+                    left_pane.set_color(p.pane);
+                    let mut right_pane = h.right_editor.parent().unwrap();
+                    right_pane.set_color(p.pane);
+                    let mut le = h.left_editor.clone();
+                    le.set_color(p.pane);
+                    le.set_text_color(p.text);
+                    le.redraw();
+                    let mut re = h.right_editor.clone();
+                    re.set_color(p.pane);
+                    re.set_text_color(p.text);
+                    re.redraw();
+                }
             }
 
             window.redraw();
@@ -616,7 +763,7 @@ pub fn run() -> Result<(), FltkError> {
         });
     }
 
-    {
+    if surface_mode == SurfaceMode::Full {
         // Mouse-select a range of diff rows and copy them with Ctrl/Cmd+C.
         let state = state.clone();
         let handles = handles.clone();
@@ -629,8 +776,7 @@ pub fn run() -> Result<(), FltkError> {
                 let count = handles.borrow().diff_view.borrow().rows.len();
                 if count > 0 {
                     let max_row = (count - 1) as i32;
-                    let row = ((app::event_y() - frame.y() - DIFF_HEADER_HEIGHT)
-                        / DIFF_ROW_HEIGHT)
+                    let row = ((app::event_y() - frame.y() - DIFF_HEADER_HEIGHT) / DIFF_ROW_HEIGHT)
                         .clamp(0, max_row) as usize;
                     selection.set(Some((row, row)));
                     let _ = frame.take_focus();
@@ -654,11 +800,10 @@ pub fn run() -> Result<(), FltkError> {
             }
             Event::Released => true,
             Event::KeyDown => {
-                let is_copy = (app::event_state() & Shortcut::Command) == Shortcut::Command
-                    && {
-                        let key = app::event_key();
-                        key == Key::from_char('c') || key == Key::from_char('C')
-                    };
+                let is_copy = (app::event_state() & Shortcut::Command) == Shortcut::Command && {
+                    let key = app::event_key();
+                    key == Key::from_char('c') || key == Key::from_char('C')
+                };
                 if is_copy && selection.get().is_some() {
                     copy_canvas_selection(&state, &handles);
                     return true;
@@ -697,8 +842,10 @@ pub fn run() -> Result<(), FltkError> {
         });
     }
 
-    attach_editor_gutter_refresh(&handles, true);
-    attach_editor_gutter_refresh(&handles, false);
+    if surface_mode == SurfaceMode::Full {
+        attach_editor_gutter_refresh(&handles, true);
+        attach_editor_gutter_refresh(&handles, false);
+    }
 
     while app.wait() {
         if let Some(message) = receiver.recv() {
@@ -733,10 +880,12 @@ pub fn run() -> Result<(), FltkError> {
 fn make_editor_pane(
     label: &str,
     palette_cell: Rc<Cell<Palette>>,
-) -> (TextEditor, TextBuffer, Frame, Rc<Cell<i32>>) {
+) -> (Flex, TextEditor, TextBuffer, Frame, Rc<Cell<i32>>) {
     let palette = palette_cell.get();
     let mut pane = Flex::default().row();
     pane.set_pad(0);
+    pane.set_frame(FrameType::FlatBox);
+    pane.set_color(palette.pane);
 
     let (gutter, buffer_for_gutter, top_line_for_gutter) = make_input_gutter(palette_cell.clone());
     let mut editor = TextEditor::default();
@@ -755,7 +904,7 @@ fn make_editor_pane(
     pane.end();
 
     *buffer_for_gutter.borrow_mut() = buffer.clone();
-    (editor, buffer, gutter, top_line_for_gutter)
+    (pane, editor, buffer, gutter, top_line_for_gutter)
 }
 
 fn make_input_gutter(
@@ -817,6 +966,26 @@ fn make_diff_canvas(
     });
     scroll.end();
     (scroll, canvas)
+}
+
+fn make_plain_diff_surface(palette: Palette) -> Frame {
+    let mut surface = Frame::default().with_label("Diff surface diagnostic: plain panel");
+    surface.set_frame(FrameType::FlatBox);
+    surface.set_color(palette.pane);
+    surface.set_label_color(palette.muted);
+    surface.set_label_size(13);
+    surface.set_align(Align::Center | Align::Inside);
+    surface
+}
+
+fn make_plain_input_surface(palette: Palette) -> Frame {
+    let mut surface = Frame::default().with_label("Input surface diagnostic: plain panel");
+    surface.set_frame(FrameType::FlatBox);
+    surface.set_color(palette.pane);
+    surface.set_label_color(palette.muted);
+    surface.set_label_size(13);
+    surface.set_align(Align::Center | Align::Inside);
+    surface
 }
 
 fn make_button(label: &str, primary: bool, palette: Palette) -> Button {
@@ -1050,11 +1219,7 @@ fn sync_state_from_buffers(state: &Rc<RefCell<AppState>>, handles: &Rc<RefCell<U
     state.set_right(right);
 }
 
-fn navigate_change(
-    state: &Rc<RefCell<AppState>>,
-    handles: &Rc<RefCell<UiHandles>>,
-    forward: bool,
-) {
+fn navigate_change(state: &Rc<RefCell<AppState>>, handles: &Rc<RefCell<UiHandles>>, forward: bool) {
     let regions = handles.borrow().diff_view.borrow().change_regions();
     let total = regions.len();
     if total == 0 {
@@ -1113,13 +1278,16 @@ fn render_state(state: &Rc<RefCell<AppState>>, handles: &Rc<RefCell<UiHandles>>)
     let view = crate::diff_view::build_diff_view(state.diff(), state.options());
     *handles.diff_view.borrow_mut() = view.clone();
     handles.stale_diff_notice.set(state.has_stale_diff());
-    resize_diff_canvas_for_view(&mut diff_scroll, &mut diff_canvas, &view);
-    diff_canvas.redraw();
+    if handles.surface_mode == SurfaceMode::Full {
+        refresh_diff_canvas_for_view(&mut diff_scroll, &mut diff_canvas, &view);
+    }
     diff_summary.set_label(&diff_summary_label(&view.summary));
-    overview_rail.set_label(&overview_rail_label(&view));
-    overview_rail.set_label_color(handles.status.label_color());
-    overview_rail.redraw();
-    redraw_input_gutters(&handles);
+    if handles.surface_mode == SurfaceMode::Full {
+        overview_rail.set_label(&overview_rail_label(&view));
+        overview_rail.set_label_color(handles.status.label_color());
+        overview_rail.redraw();
+        redraw_input_gutters(&handles);
+    }
     status.set_label(state.status());
     if state.has_current_diff() {
         copy_diff.activate();
@@ -1158,11 +1326,23 @@ fn visible_input_line_numbers(top_line: i32, visible_rows: i32, text: &str) -> V
 }
 
 fn pin_button_label(pinned: bool) -> &'static str {
-    if pinned { "Pinned" } else { "Pin" }
+    if pinned {
+        "Pinned"
+    } else {
+        "Pin"
+    }
 }
 
 fn diff_canvas_height(row_count: usize) -> i32 {
     DIFF_HEADER_HEIGHT + DIFF_ROW_HEIGHT * row_count.max(1) as i32
+}
+
+fn diff_canvas_width(scroll_width: i32, scrollbar_size: i32) -> i32 {
+    (scroll_width - scrollbar_size).max(DIFF_CANVAS_MIN_WIDTH)
+}
+
+fn needs_resize(widget: &Frame, x: i32, y: i32, width: i32, height: i32) -> bool {
+    widget.x() != x || widget.y() != y || widget.w() != width || widget.h() != height
 }
 
 fn attach_editor_gutter_refresh(handles: &Rc<RefCell<UiHandles>>, left_side: bool) {
@@ -1216,20 +1396,27 @@ fn redraw_input_gutters(handles: &UiHandles) {
     right_gutter.redraw();
 }
 
-fn resize_diff_canvas_for_view(
+fn refresh_diff_canvas_for_view(
     scroll: &mut Scroll,
     canvas: &mut Frame,
     view: &crate::diff_view::RenderedDiffView,
 ) {
-    let width = (scroll.w() - scroll.scrollbar_size()).max(DIFF_CANVAS_MIN_WIDTH);
+    let width = diff_canvas_width(scroll.w(), scroll.scrollbar_size());
     let height = diff_canvas_height(view.rows.len());
-    canvas.resize(scroll.x(), scroll.y(), width, height);
+    if needs_resize(canvas, scroll.x(), scroll.y(), width, height) {
+        canvas.resize(scroll.x(), scroll.y(), width, height);
+    }
+    canvas.redraw();
     scroll.redraw();
 }
 
-fn resize_diff_canvas(scroll: &mut Scroll, canvas: &mut Frame) {
-    let width = (scroll.w() - scroll.scrollbar_size()).max(DIFF_CANVAS_MIN_WIDTH);
+fn refresh_diff_canvas_size(scroll: &mut Scroll, canvas: &mut Frame) {
+    let width = diff_canvas_width(scroll.w(), scroll.scrollbar_size());
+    if !needs_resize(canvas, canvas.x(), canvas.y(), width, canvas.h()) {
+        return;
+    }
     canvas.resize(canvas.x(), canvas.y(), width, canvas.h());
+    canvas.redraw();
     scroll.redraw();
 }
 
@@ -1616,8 +1803,12 @@ fn available_input_height(window_height: i32) -> i32 {
     // (5 children => 4 inter-child pads), framed by top/bottom margin. The
     // action/status bars shrink in compact mode (short windows), freeing space.
     let compact = chrome_compact(window_height);
-    window_height - (root_margin(compact) * 2) - (root_pad(compact) * 4) - SASH_HEIGHT
-        - action_bar_height(compact) - status_bar_height(compact)
+    window_height
+        - (root_margin(compact) * 2)
+        - (root_pad(compact) * 4)
+        - SASH_HEIGHT
+        - action_bar_height(compact)
+        - status_bar_height(compact)
 }
 
 fn input_height_for(window_height: i32, vertical_split: f32) -> i32 {
@@ -1757,6 +1948,230 @@ mod tests {
     }
 
     #[test]
+    fn diff_canvas_width_reserves_scrollbar_and_keeps_minimum_width() {
+        assert_eq!(
+            diff_canvas_width(DIFF_CANVAS_MIN_WIDTH + 100, 14),
+            DIFF_CANVAS_MIN_WIDTH + 86
+        );
+        assert_eq!(
+            diff_canvas_width(DIFF_CANVAS_MIN_WIDTH - 100, 14),
+            DIFF_CANVAS_MIN_WIDTH
+        );
+    }
+
+    #[test]
+    fn needs_resize_ignores_unchanged_geometry() {
+        let frame = Frame::default().with_pos(10, 20).with_size(30, 40);
+
+        assert!(!needs_resize(&frame, 10, 20, 30, 40));
+        assert!(needs_resize(&frame, 10, 20, 31, 40));
+        assert!(needs_resize(&frame, 10, 21, 30, 40));
+    }
+
+    #[test]
+    fn fltk_scheme_name_defaults_to_gtk_and_accepts_diagnostic_variants() {
+        assert_eq!(fltk_scheme_from_name(None), app::Scheme::Gtk);
+        assert_eq!(fltk_scheme_from_name(Some("")), app::Scheme::Gtk);
+        assert_eq!(fltk_scheme_from_name(Some("gtk")), app::Scheme::Gtk);
+        assert_eq!(fltk_scheme_from_name(Some("gtk+")), app::Scheme::Gtk);
+        assert_eq!(fltk_scheme_from_name(Some("base")), app::Scheme::Base);
+        assert_eq!(fltk_scheme_from_name(Some("gleam")), app::Scheme::Gleam);
+        assert_eq!(fltk_scheme_from_name(Some("plastic")), app::Scheme::Plastic);
+        assert_eq!(fltk_scheme_from_name(Some("oxy")), app::Scheme::Oxy);
+        assert_eq!(fltk_scheme_from_name(Some("unknown")), app::Scheme::Gtk);
+    }
+
+    #[test]
+    fn diff_surface_mode_defaults_to_scroll_and_accepts_plain_diagnostic() {
+        assert_eq!(diff_surface_mode_from_name(None), DiffSurfaceMode::Scroll);
+        assert_eq!(
+            diff_surface_mode_from_name(Some("")),
+            DiffSurfaceMode::Scroll
+        );
+        assert_eq!(
+            diff_surface_mode_from_name(Some("scroll")),
+            DiffSurfaceMode::Scroll
+        );
+        assert_eq!(
+            diff_surface_mode_from_name(Some("plain")),
+            DiffSurfaceMode::Plain
+        );
+        assert_eq!(
+            diff_surface_mode_from_name(Some("unknown")),
+            DiffSurfaceMode::Scroll
+        );
+    }
+
+    #[test]
+    fn surface_mode_defaults_to_full_and_accepts_minimal_diagnostic() {
+        assert_eq!(surface_mode_from_name(None), SurfaceMode::Full);
+        assert_eq!(surface_mode_from_name(Some("")), SurfaceMode::Full);
+        assert_eq!(surface_mode_from_name(Some("full")), SurfaceMode::Full);
+        assert_eq!(
+            surface_mode_from_name(Some("minimal")),
+            SurfaceMode::Minimal
+        );
+        assert_eq!(surface_mode_from_name(Some("unknown")), SurfaceMode::Full);
+    }
+
+    #[test]
+    fn surface_mode_env_supports_minimal_diagnostic() {
+        let source = include_str!("ui_fltk.rs");
+
+        assert!(
+            source.contains("enum SurfaceMode"),
+            "surface mode should exist to isolate resize flicker from heavy widgets"
+        );
+        assert!(
+            source.contains("SLIPPY_SURFACE_MODE"),
+            "surface mode should be controlled by an environment variable"
+        );
+        assert!(
+            source.contains("Some(\"minimal\") => SurfaceMode::Minimal"),
+            "surface mode should support a minimal diagnostic UI"
+        );
+    }
+
+    #[test]
+    fn resize_mode_defaults_to_responsive_and_accepts_static_diagnostic() {
+        assert_eq!(resize_mode_from_name(None), ResizeMode::Responsive);
+        assert_eq!(resize_mode_from_name(Some("")), ResizeMode::Responsive);
+        assert_eq!(
+            resize_mode_from_name(Some("responsive")),
+            ResizeMode::Responsive
+        );
+        assert_eq!(resize_mode_from_name(Some("static")), ResizeMode::Static);
+        assert_eq!(
+            resize_mode_from_name(Some("unknown")),
+            ResizeMode::Responsive
+        );
+    }
+
+    #[test]
+    fn static_resize_mode_skips_window_resize_callback_installation() {
+        let source = include_str!("ui_fltk.rs");
+
+        assert!(
+            source.contains("SLIPPY_RESIZE_MODE"),
+            "resize mode should be controlled by an environment variable"
+        );
+        assert!(
+            source.contains("if resize_mode == ResizeMode::Responsive {"),
+            "window resize callback should only be installed in responsive mode"
+        );
+        let responsive_start = source
+            .find("if resize_mode == ResizeMode::Responsive {")
+            .expect("responsive resize guard should exist");
+        let responsive_end = responsive_start
+            + source[responsive_start..]
+                .find("\n    }")
+                .expect("responsive resize guard should close");
+        let responsive_body = &source[responsive_start..responsive_end];
+
+        assert!(
+            responsive_body.contains("window.resize_callback(move |win, _x, _y, w, h|"),
+            "responsive resize mode should keep the existing live-resize behavior"
+        );
+    }
+
+    #[test]
+    fn minimal_surface_mode_skips_hidden_widget_redraws_in_render_state() {
+        let source = include_str!("ui_fltk.rs");
+        let render_start = source
+            .find("fn render_state(")
+            .expect("render_state should exist");
+        let render_end = render_start
+            + source[render_start..]
+                .find("\nfn diff_summary_label")
+                .expect("render_state should end before diff_summary_label");
+        let render_body = &source[render_start..render_end];
+
+        assert!(
+            render_body.contains("if handles.surface_mode == SurfaceMode::Full {"),
+            "render_state should only redraw hidden-heavy widgets in full surface mode"
+        );
+        assert!(
+            render_body.contains(
+                "refresh_diff_canvas_for_view(&mut diff_scroll, &mut diff_canvas, &view);"
+            ),
+            "full mode should still refresh the diff canvas"
+        );
+        assert!(
+            render_body.contains("redraw_input_gutters(&handles);"),
+            "full mode should still refresh input gutters"
+        );
+    }
+
+    #[test]
+    fn window_resize_callback_does_not_refresh_diff_canvas() {
+        let source = include_str!("ui_fltk.rs");
+        let handler_start = source
+            .find("window.resize_callback(move |win, _x, _y, w, h|")
+            .expect("resize callback should exist");
+        let handler_end = handler_start
+            + source[handler_start..]
+                .find("\n        });")
+                .expect("resize callback should close");
+        let handler_body = &source[handler_start..handler_end];
+
+        assert!(
+            !handler_body.contains("refresh_diff_canvas_size"),
+            "window resize must not trigger custom diff canvas resize/redraw"
+        );
+    }
+
+    #[test]
+    fn top_level_window_uses_opaque_background_frame() {
+        let source = include_str!("ui_fltk.rs");
+        let window_start = source
+            .find("let mut window = Window::default()")
+            .expect("window construction should exist");
+        let root_start = source[window_start..]
+            .find("let mut root = Flex::default_fill().column();")
+            .map(|offset| window_start + offset)
+            .expect("root construction should follow window setup");
+        let window_setup = &source[window_start..root_start];
+
+        assert!(
+            window_setup.contains("window.set_frame(FrameType::FlatBox);"),
+            "top-level window should draw an opaque background during live resize"
+        );
+    }
+
+    #[test]
+    fn window_resize_callback_uses_default_event_path_without_synchronous_flush() {
+        let source = include_str!("ui_fltk.rs");
+        let production_source = &source[..source
+            .find("#[cfg(test)]")
+            .expect("test module should be separated from production code")];
+        assert!(
+            !production_source.contains("window.handle(move |win, event|"),
+            "window resize should not replace the default FLTK event handler"
+        );
+        let handler_start = source
+            .find("window.resize_callback(move |win, _x, _y, w, h|")
+            .expect("resize callback should exist");
+        let handler_end = handler_start
+            + source[handler_start..]
+                .find("\n        });")
+                .expect("resize callback should close");
+        let handler_body = &source[handler_start..handler_end];
+
+        assert!(
+            handler_body.contains("responsive_root.redraw();"),
+            "resize should mark the root surface dirty so newly exposed areas repaint"
+        );
+        assert!(
+            handler_body.contains("win.redraw();"),
+            "resize should mark the whole window dirty during continuous drag"
+        );
+        assert!(
+            !handler_body.contains("win.flush();"),
+            "resize should not synchronously flush a half-updated layout during continuous drag"
+        );
+    }
+
+    #[test]
     fn vertical_split_round_trips_through_input_height() {
         for &split in &[MIN_VERTICAL_SPLIT, 0.45, 0.55, MAX_VERTICAL_SPLIT] {
             let px = input_height_for(1000, split);
@@ -1777,7 +2192,7 @@ mod tests {
     #[test]
     fn overview_rail_label_places_change_markers() {
         use crate::{
-            diff_core::{DiffOptions, build_display_diff},
+            diff_core::{build_display_diff, DiffOptions},
             diff_view::build_diff_view,
         };
 
@@ -1796,7 +2211,7 @@ mod tests {
     #[test]
     fn overview_rail_label_keeps_blank_slots_without_marks() {
         use crate::{
-            diff_core::{DiffOptions, build_display_diff},
+            diff_core::{build_display_diff, DiffOptions},
             diff_view::build_diff_view,
         };
 

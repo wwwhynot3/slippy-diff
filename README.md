@@ -89,6 +89,10 @@ Wayland additionally needs `wayland`, `wayland-protocols`, and `libxkbcommon` (o
 - Pango / fontconfig errors → install the **pango** and **fontconfig** dev packages.
 - Wayland build fails on a feature-name error → adjust only the Cargo feature mapping (see above).
 
+## Known Issues
+
+- **Black flicker during continuous manual resize on KDE Plasma Wayland:** on at least one KDE Plasma Wayland setup, the window can briefly flash black while being dragged-resized, especially when shrinking. This reproduces with both `cargo run` and `cargo run --features wayland`, and also with the minimal `examples/fltk_resize_probe.rs` empty-window probe across `DoubleWindow`, `SingleWindow`, explicit opaque redraw, `Mode::Rgb8`, and `FLTK_BACKEND=x11/wayland`. That points to the FLTK top-level window / compositor live-resize path rather than Slippy's diff canvas, layout, or resize callback. A real Plasma X11 login session may behave differently; if it does, treat this as a Wayland/XWayland environment limitation.
+
 ## Keyboard shortcuts
 
 | Shortcut | Action |
