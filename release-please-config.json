@@ -1,0 +1,9 @@
+{
+  "packages": {
+    ".": {
+      "release-type": "rust",
+      "package-name": "slippy",
+      "changelog-path": "CHANGELOG.md"
+    }
+  }
+}
