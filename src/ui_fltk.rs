@@ -203,6 +203,7 @@ struct UiHandles {
     next_change: Button,
     nav_cursor: Rc<Cell<Option<usize>>>,
     selection: Rc<Cell<Option<(usize, usize)>>>,
+    char_selection: Rc<Cell<Option<crate::diff_view::DiffCharSelection>>>,
     clipboard: Option<Clipboard>,
 }
 
@@ -360,12 +361,14 @@ pub fn run() -> Result<(), FltkError> {
     let stale_diff_notice = Rc::new(Cell::new(false));
     let nav_cursor = Rc::new(Cell::new(Option::<usize>::None));
     let selection = Rc::new(Cell::new(None));
+    let char_selection = Rc::new(Cell::new(None));
     let (mut diff_scroll, mut diff_canvas) = make_diff_canvas(
         palette_cell.clone(),
         initial_diff_view.clone(),
         stale_diff_notice.clone(),
         nav_cursor.clone(),
         selection.clone(),
+        char_selection.clone(),
     );
     let mut diagnostic_diff_surface = None::<Frame>;
     if diff_surface_mode == DiffSurfaceMode::Plain {
@@ -536,6 +539,7 @@ pub fn run() -> Result<(), FltkError> {
         next_change: next_change.clone(),
         nav_cursor: nav_cursor.clone(),
         selection: selection.clone(),
+        char_selection: char_selection.clone(),
         clipboard,
     }));
     render_state(&state, &handles);
@@ -764,10 +768,11 @@ pub fn run() -> Result<(), FltkError> {
     }
 
     if surface_mode == SurfaceMode::Full {
-        // Mouse-select a range of diff rows and copy them with Ctrl/Cmd+C.
+        // Mouse-select diff rows or text-column character ranges and copy with Ctrl/Cmd+C.
         let state = state.clone();
         let handles = handles.clone();
         let selection = selection.clone();
+        let char_selection = char_selection.clone();
         let mut canvas = handles.borrow().diff_canvas.clone();
         canvas.set_visible_focus();
         canvas.handle(move |frame, event| match event {
@@ -775,23 +780,61 @@ pub fn run() -> Result<(), FltkError> {
             Event::Push => {
                 let count = handles.borrow().diff_view.borrow().rows.len();
                 if count > 0 {
-                    let max_row = (count - 1) as i32;
-                    let row = ((app::event_y() - frame.y() - DIFF_HEADER_HEIGHT) / DIFF_ROW_HEIGHT)
-                        .clamp(0, max_row) as usize;
-                    selection.set(Some((row, row)));
+                    draw::set_font(Font::Courier, 14);
+                    let (char_width, _) = draw::measure("M", false);
+                    let char_position = {
+                        let handles = handles.borrow();
+                        let view = handles.diff_view.borrow();
+                        diff_char_position_at(
+                            &view,
+                            app::event_x(),
+                            app::event_y(),
+                            frame.x(),
+                            frame.y(),
+                            char_width,
+                        )
+                    };
+                    if let Some(position) = char_position {
+                        selection.set(None);
+                        char_selection.set(Some(crate::diff_view::DiffCharSelection {
+                            anchor: position,
+                            focus: position,
+                        }));
+                    } else if let Some(row) = diff_row_at(app::event_y(), frame.y(), count) {
+                        char_selection.set(None);
+                        selection.set(Some((row, row)));
+                    }
                     let _ = frame.take_focus();
                     frame.redraw();
                 }
                 true
             }
             Event::Drag => {
-                if let Some((anchor, _)) = selection.get() {
+                if let Some(active) = char_selection.get() {
+                    draw::set_font(Font::Courier, 14);
+                    let (char_width, _) = draw::measure("M", false);
+                    let next_focus = {
+                        let handles = handles.borrow();
+                        let view = handles.diff_view.borrow();
+                        diff_char_position_at(
+                            &view,
+                            app::event_x(),
+                            app::event_y(),
+                            frame.x(),
+                            frame.y(),
+                            char_width,
+                        )
+                    };
+                    if let Some(focus) = next_focus {
+                        char_selection.set(Some(crate::diff_view::DiffCharSelection {
+                            anchor: active.anchor,
+                            focus,
+                        }));
+                        frame.redraw();
+                    }
+                } else if let Some((anchor, _)) = selection.get() {
                     let count = handles.borrow().diff_view.borrow().rows.len();
-                    if count > 0 {
-                        let max_row = (count - 1) as i32;
-                        let row = ((app::event_y() - frame.y() - DIFF_HEADER_HEIGHT)
-                            / DIFF_ROW_HEIGHT)
-                            .clamp(0, max_row) as usize;
+                    if let Some(row) = diff_row_at(app::event_y(), frame.y(), count) {
                         selection.set(Some((anchor, row)));
                         frame.redraw();
                     }
@@ -804,12 +847,13 @@ pub fn run() -> Result<(), FltkError> {
                     let key = app::event_key();
                     key == Key::from_char('c') || key == Key::from_char('C')
                 };
-                if is_copy && selection.get().is_some() {
+                if is_copy && (selection.get().is_some() || char_selection.get().is_some()) {
                     copy_canvas_selection(&state, &handles);
                     return true;
                 }
                 if app::event_key() == Key::Escape {
                     selection.set(None);
+                    char_selection.set(None);
                     frame.redraw();
                     return true;
                 }
@@ -930,6 +974,7 @@ fn make_diff_canvas(
     stale_notice: Rc<Cell<bool>>,
     nav_cursor: Rc<Cell<Option<usize>>>,
     selection: Rc<Cell<Option<(usize, usize)>>>,
+    char_selection: Rc<Cell<Option<crate::diff_view::DiffCharSelection>>>,
 ) -> (Scroll, Frame) {
     let mut scroll = Scroll::default();
     scroll.set_type(ScrollType::Both);
@@ -948,6 +993,7 @@ fn make_diff_canvas(
         let stale_notice = stale_notice.clone();
         let nav_cursor = nav_cursor.clone();
         let selection = selection.clone();
+        let char_selection = char_selection.clone();
         let palette_cell = palette_cell.clone();
         move |frame| {
             let view = view.borrow();
@@ -960,6 +1006,7 @@ fn make_diff_canvas(
                 stale_notice.get(),
                 highlight,
                 selection.get(),
+                char_selection.get(),
                 palette_cell.get(),
             )
         }
@@ -1127,23 +1174,26 @@ fn clear_all(state: &Rc<RefCell<AppState>>, handles: &Rc<RefCell<UiHandles>>) {
 }
 
 fn copy_canvas_selection(state: &Rc<RefCell<AppState>>, handles: &Rc<RefCell<UiHandles>>) {
-    let (text, line_count) = match handles.borrow().selection.get() {
-        Some((a, b)) => {
-            let lo = a.min(b);
-            let hi = a.max(b);
-            let text = handles.borrow().diff_view.borrow().selection_text(a, b);
-            (text, hi - lo + 1)
+    let (text, status) = {
+        let handles = handles.borrow();
+        let view = handles.diff_view.borrow();
+        match selected_diff_copy_text(&view, handles.char_selection.get(), handles.selection.get())
+        {
+            Some(selection) => selection,
+            None => return,
         }
-        None => return,
     };
     let copied = match handles.borrow_mut().clipboard.as_mut() {
         Some(clipboard) => clipboard.set_text(text).is_ok(),
         None => false,
     };
     if copied {
-        state
-            .borrow_mut()
-            .set_status(format!("Copied {line_count} lines."));
+        match status {
+            DiffCopyStatus::Lines(line_count) => state
+                .borrow_mut()
+                .set_status(format!("Copied {line_count} lines.")),
+            DiffCopyStatus::Selection => state.borrow_mut().set_status("Copied selection."),
+        }
     } else {
         state
             .borrow_mut()
@@ -1522,6 +1572,7 @@ fn draw_diff_canvas(
     stale_notice: bool,
     highlight: Option<std::ops::Range<usize>>,
     selection: Option<(usize, usize)>,
+    _char_selection: Option<crate::diff_view::DiffCharSelection>,
     palette: Palette,
 ) {
     draw::set_draw_color(palette.pane);
@@ -2139,6 +2190,65 @@ mod tests {
         assert_eq!(
             selected_diff_copy_text(&view, None, Some((1, 0))),
             Some((String::from("first\nsecond"), DiffCopyStatus::Lines(2)))
+        );
+    }
+
+    #[test]
+    fn ui_handles_tracks_character_selection_separately_from_row_selection() {
+        let source = include_str!("ui_fltk.rs");
+        assert!(
+            source.contains(
+                "char_selection: Rc<Cell<Option<crate::diff_view::DiffCharSelection>>>"
+            ),
+            "UiHandles should store character selection separately from row selection"
+        );
+    }
+
+    #[test]
+    fn copy_canvas_selection_uses_shared_selected_text_helper() {
+        let source = include_str!("ui_fltk.rs");
+        let start = source
+            .find("fn copy_canvas_selection(")
+            .expect("copy_canvas_selection should exist");
+        let end = start
+            + source[start..]
+                .find("\nfn copy_current_diff")
+                .expect("copy_canvas_selection should end before copy_current_diff");
+        let body = &source[start..end];
+
+        assert!(
+            body.contains("selected_diff_copy_text("),
+            "copy_canvas_selection should use the helper that prefers character selection"
+        );
+        assert!(
+            body.contains("char_selection.get()"),
+            "copy_canvas_selection should read character selection state"
+        );
+    }
+
+    #[test]
+    fn diff_canvas_event_handler_distinguishes_text_and_row_selection() {
+        let source = include_str!("ui_fltk.rs");
+        let start = source
+            .find("canvas.handle(move |frame, event| match event {")
+            .expect("diff canvas handler should exist");
+        let end = start
+            + source[start..]
+                .find("\n        });")
+                .expect("diff canvas handler should close");
+        let handler = &source[start..end];
+
+        assert!(
+            handler.contains("diff_char_position_at("),
+            "text-column mouse events should use character hit testing"
+        );
+        assert!(
+            handler.contains("char_selection.set(None);"),
+            "row selection path should clear character selection"
+        );
+        assert!(
+            handler.contains("selection.set(None);"),
+            "character selection path should clear row selection"
         );
     }
 
