@@ -15,8 +15,114 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Create or update release PR
+        id: release
         uses: googleapis/release-please-action@v4
         with:
           target-branch: master
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      - name: Checkout release tag
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release.outputs.sha }}
+
+      - name: Install Linux packaging dependencies
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libx11-dev \
+            libxext-dev \
+            libxft-dev \
+            libxinerama-dev \
+            libxcursor-dev \
+            libxrender-dev \
+            libxfixes-dev \
+            libgl1-mesa-dev \
+            libglu1-mesa-dev \
+            libfontconfig1-dev \
+            libpango1.0-dev \
+            libgtk-3-dev \
+            desktop-file-utils \
+            file \
+            patchelf \
+            wget
+
+      - name: Build Linux x86_64 binary
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        run: cargo build --release --locked
+
+      - name: Create AppImage AppDir
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        run: |
+          mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
+          cp target/release/slippy AppDir/usr/bin/slippy
+          cat > AppDir/usr/share/applications/slippy.desktop <<'DESKTOP'
+          [Desktop Entry]
+          Type=Application
+          Name=Slippy
+          Comment=Native desktop text diff tool
+          Exec=slippy
+          Icon=slippy
+          Categories=Utility;TextTools;
+          Terminal=false
+          DESKTOP
+          python3 - <<'PY'
+          import struct
+          import zlib
+
+          size = 256
+          raw = bytearray()
+          for y in range(size):
+              raw.append(0)
+              for x in range(size):
+                  if 32 <= x < 224 and 32 <= y < 224:
+                      r, g, b, a = 36, 105, 92, 255
+                      if 72 <= x < 184 and 74 <= y < 92:
+                          r, g, b = 234, 241, 239
+                      if 72 <= x < 184 and 118 <= y < 136:
+                          r, g, b = 234, 241, 239
+                      if 72 <= x < 154 and 162 <= y < 180:
+                          r, g, b = 234, 241, 239
+                  else:
+                      r, g, b, a = 0, 0, 0, 0
+                  raw.extend((r, g, b, a))
+
+          def chunk(kind, data):
+              return (
+                  struct.pack(">I", len(data))
+                  + kind
+                  + data
+                  + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+              )
+
+          png = (
+              b"\x89PNG\r\n\x1a\n"
+              + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0))
+              + chunk(b"IDAT", zlib.compress(bytes(raw), 9))
+              + chunk(b"IEND", b"")
+          )
+          with open("AppDir/usr/share/icons/hicolor/256x256/apps/slippy.png", "wb") as f:
+              f.write(png)
+          PY
+          cp AppDir/usr/share/applications/slippy.desktop AppDir/slippy.desktop
+          cp AppDir/usr/share/icons/hicolor/256x256/apps/slippy.png AppDir/slippy.png
+
+      - name: Build AppImage
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        run: |
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20251107-1/linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy-x86_64.AppImage
+          ./linuxdeploy-x86_64.AppImage --appimage-extract
+          ./squashfs-root/AppRun --appdir AppDir --output appimage
+          appimage="$(find . -maxdepth 1 -name '*.AppImage' ! -name 'linuxdeploy-x86_64.AppImage' -print -quit)"
+          test -n "$appimage"
+          mv "$appimage" "slippy-v${{ steps.release.outputs.version }}-linux-x86_64.AppImage"
+
+      - name: Upload AppImage to GitHub Release
+        if: ${{ steps.release.outputs.release_created == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ steps.release.outputs.tag_name }}" "slippy-v${{ steps.release.outputs.version }}-linux-x86_64.AppImage" --clobber
