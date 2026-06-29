@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Slippy app icon">
+  <rect width="512" height="512" rx="104" fill="#F7F5F0"/>
+  <rect x="70" y="70" width="372" height="372" rx="86" fill="#FFFEFA" stroke="#D8D2C7" stroke-width="18"/>
+  <line x1="256" y1="122" x2="256" y2="390" stroke="#D8D2C7" stroke-width="14" stroke-linecap="round"/>
+  <path d="M148 188H294C344 188 376 220 376 256C376 292 344 324 294 324H148" fill="none" stroke="#2F6F73" stroke-width="42" stroke-linecap="round"/>
+  <path d="M224 160L148 188L224 216" fill="none" stroke="#2F6F73" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M294 296L376 324L294 352" fill="none" stroke="#2F6F73" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="168" y="240" width="76" height="22" rx="11" fill="#9A3A25"/>
+  <rect x="280" y="240" width="76" height="22" rx="11" fill="#1F6B3A"/>
+</svg>

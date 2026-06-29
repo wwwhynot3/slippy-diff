@@ -12,6 +12,7 @@ use fltk::{
     enums::{Align, Color, Cursor, Event, Font, FrameType, Key, Shortcut},
     frame::Frame,
     group::{Flex, FlexType, Scroll, ScrollType},
+    image::SvgImage,
     prelude::*,
     text::{TextBuffer, TextEditor},
     window::Window,
@@ -77,6 +78,7 @@ const DIFF_ROW_HEIGHT: i32 = 22;
 const DIFF_CANVAS_MIN_WIDTH: i32 = 760;
 const DIFF_TEXT_LEFT_PAD: i32 = 10;
 const SELECTION_STRIP_WIDTH: i32 = 5;
+const APP_ICON_SVG: &str = include_str!("../assets/icons/slippy.svg");
 
 fn fltk_scheme_from_name(name: Option<&str>) -> app::Scheme {
     match name.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
@@ -252,6 +254,7 @@ pub fn run() -> Result<(), FltkError> {
     let mut window = Window::default()
         .with_size(config.config.width, config.config.height)
         .with_label("Slippy");
+    apply_window_icon(&mut window);
     window.size_range(MIN_WIDTH, MIN_HEIGHT, 0, 0);
     window.set_color(palette.surface);
     window.set_frame(FrameType::FlatBox);
@@ -968,6 +971,12 @@ fn make_input_gutter(
         move |frame| draw_input_gutter(frame, &buffer.borrow(), top_line.get(), palette_cell.get())
     });
     (gutter, buffer, top_line)
+}
+
+fn apply_window_icon(window: &mut Window) {
+    if let Ok(icon) = SvgImage::from_data(APP_ICON_SVG) {
+        window.set_icon(Some(icon));
+    }
 }
 
 fn make_diff_canvas(
