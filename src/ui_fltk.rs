@@ -1341,6 +1341,72 @@ fn diff_canvas_width(scroll_width: i32, scrollbar_size: i32) -> i32 {
     (scroll_width - scrollbar_size).max(DIFF_CANVAS_MIN_WIDTH)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DiffCopyStatus {
+    Lines(usize),
+    Selection,
+}
+
+fn diff_text_x(frame_x: i32) -> i32 {
+    frame_x
+        + DIFF_OLD_GUTTER_WIDTH
+        + DIFF_NEW_GUTTER_WIDTH
+        + DIFF_MARKER_WIDTH
+        + DIFF_TEXT_LEFT_PAD
+}
+
+fn diff_row_at(event_y: i32, frame_y: i32, row_count: usize) -> Option<usize> {
+    if row_count == 0 {
+        return None;
+    }
+    let max_row = (row_count - 1) as i32;
+    Some(((event_y - frame_y - DIFF_HEADER_HEIGHT) / DIFF_ROW_HEIGHT).clamp(0, max_row) as usize)
+}
+
+fn diff_char_position_at(
+    view: &crate::diff_view::RenderedDiffView,
+    event_x: i32,
+    event_y: i32,
+    frame_x: i32,
+    frame_y: i32,
+    char_width: i32,
+) -> Option<crate::diff_view::DiffCharPosition> {
+    let row_index = diff_row_at(event_y, frame_y, view.rows.len())?;
+    let text_x = diff_text_x(frame_x);
+    if event_x < text_x {
+        return None;
+    }
+    let char_width = char_width.max(1);
+    let row_len = view
+        .row_text(row_index)
+        .map(|text| text.chars().count())
+        .unwrap_or_default();
+    let char_index = ((event_x - text_x) / char_width).clamp(0, row_len as i32) as usize;
+    Some(crate::diff_view::DiffCharPosition {
+        row_index,
+        char_index,
+    })
+}
+
+fn selected_diff_copy_text(
+    view: &crate::diff_view::RenderedDiffView,
+    char_selection: Option<crate::diff_view::DiffCharSelection>,
+    row_selection: Option<(usize, usize)>,
+) -> Option<(String, DiffCopyStatus)> {
+    if let Some(selection) = char_selection {
+        let text = view.char_selection_text(selection);
+        if !text.is_empty() {
+            return Some((text, DiffCopyStatus::Selection));
+        }
+    }
+
+    row_selection.map(|(a, b)| {
+        let lo = a.min(b);
+        let hi = a.max(b);
+        (view.selection_text(a, b), DiffCopyStatus::Lines(hi - lo + 1))
+    })
+}
+
 fn needs_resize(widget: &Frame, x: i32, y: i32, width: i32, height: i32) -> bool {
     widget.x() != x || widget.y() != y || widget.w() != width || widget.h() != height
 }
@@ -1956,6 +2022,123 @@ mod tests {
         assert_eq!(
             diff_canvas_width(DIFF_CANVAS_MIN_WIDTH - 100, 14),
             DIFF_CANVAS_MIN_WIDTH
+        );
+    }
+
+    fn test_diff_view(lines: &[&str]) -> crate::diff_view::RenderedDiffView {
+        crate::diff_view::RenderedDiffView {
+            rows: lines
+                .iter()
+                .map(|line| crate::diff_view::DiffViewRow {
+                    kind: crate::diff_view::DiffViewRowKind::Context,
+                    old_line: None,
+                    new_line: None,
+                    marker: "",
+                    segments: vec![crate::diff_view::DiffViewSegment {
+                        kind: crate::diff_view::DiffViewSegmentKind::Normal,
+                        text: (*line).to_string(),
+                    }],
+                    group_id: None,
+                })
+                .collect(),
+            summary: crate::diff_view::ChangeSummary {
+                removed: 0,
+                added: 0,
+                edited: 0,
+            },
+            marks: vec![],
+            left_no_newline: false,
+            right_no_newline: false,
+        }
+    }
+
+    #[test]
+    fn diff_text_origin_matches_header_and_gutters() {
+        assert_eq!(
+            diff_text_x(10),
+            10 + DIFF_OLD_GUTTER_WIDTH
+                + DIFF_NEW_GUTTER_WIDTH
+                + DIFF_MARKER_WIDTH
+                + DIFF_TEXT_LEFT_PAD
+        );
+    }
+
+    #[test]
+    fn diff_row_at_clamps_vertical_drag_to_existing_rows() {
+        let frame_y = 100;
+        assert_eq!(
+            diff_row_at(frame_y + DIFF_HEADER_HEIGHT, frame_y, 3),
+            Some(0)
+        );
+        assert_eq!(
+            diff_row_at(
+                frame_y + DIFF_HEADER_HEIGHT + DIFF_ROW_HEIGHT * 99,
+                frame_y,
+                3
+            ),
+            Some(2)
+        );
+        assert_eq!(diff_row_at(frame_y, frame_y, 0), None);
+    }
+
+    #[test]
+    fn diff_char_position_at_maps_text_column_x_to_character_index() {
+        let view = test_diff_view(&["abcdef"]);
+        let frame_x = 20;
+        let frame_y = 50;
+        let char_width = 8;
+        let x = diff_text_x(frame_x) + (char_width * 3) + 2;
+        let y = frame_y + DIFF_HEADER_HEIGHT + 4;
+
+        assert_eq!(
+            diff_char_position_at(&view, x, y, frame_x, frame_y, char_width),
+            Some(crate::diff_view::DiffCharPosition {
+                row_index: 0,
+                char_index: 3,
+            })
+        );
+    }
+
+    #[test]
+    fn diff_char_position_at_returns_none_before_text_column() {
+        let view = test_diff_view(&["abcdef"]);
+        let frame_x = 20;
+        let frame_y = 50;
+        let y = frame_y + DIFF_HEADER_HEIGHT + 4;
+
+        assert_eq!(
+            diff_char_position_at(&view, diff_text_x(frame_x) - 1, y, frame_x, frame_y, 8),
+            None
+        );
+    }
+
+    #[test]
+    fn selected_diff_copy_text_prefers_character_selection_over_row_selection() {
+        let view = test_diff_view(&["abcdef", "second"]);
+        let char_selection = crate::diff_view::DiffCharSelection {
+            anchor: crate::diff_view::DiffCharPosition {
+                row_index: 0,
+                char_index: 1,
+            },
+            focus: crate::diff_view::DiffCharPosition {
+                row_index: 0,
+                char_index: 4,
+            },
+        };
+
+        assert_eq!(
+            selected_diff_copy_text(&view, Some(char_selection), Some((0, 1))),
+            Some((String::from("bcd"), DiffCopyStatus::Selection))
+        );
+    }
+
+    #[test]
+    fn selected_diff_copy_text_keeps_existing_row_selection_behavior() {
+        let view = test_diff_view(&["first", "second"]);
+
+        assert_eq!(
+            selected_diff_copy_text(&view, None, Some((1, 0))),
+            Some((String::from("first\nsecond"), DiffCopyStatus::Lines(2)))
         );
     }
 
