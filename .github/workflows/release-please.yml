@@ -66,8 +66,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
+            binutils \
             build-essential \
             cmake \
+            lld \
             pkg-config \
             libx11-dev \
             libxext-dev \
@@ -126,10 +128,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
+            binutils \
             build-essential \
             cmake \
             desktop-file-utils \
             file \
+            lld \
             libx11-dev \
             libxext-dev \
             libxft-dev \
