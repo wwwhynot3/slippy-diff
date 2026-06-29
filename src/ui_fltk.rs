@@ -1191,9 +1191,12 @@ fn copy_canvas_selection(state: &Rc<RefCell<AppState>>, handles: &Rc<RefCell<UiH
     };
     if copied {
         match status {
-            DiffCopyStatus::Lines(line_count) => state
-                .borrow_mut()
-                .set_status(format!("Copied {line_count} lines.")),
+            DiffCopyStatus::Lines {
+                line_count,
+                char_count,
+            } => state.borrow_mut().set_status(format!(
+                "Copied {line_count} lines, {char_count} characters."
+            )),
             DiffCopyStatus::Characters(char_count) => state
                 .borrow_mut()
                 .set_status(format!("Copied {char_count} characters.")),
@@ -1397,7 +1400,10 @@ fn diff_canvas_width(scroll_width: i32, scrollbar_size: i32) -> i32 {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DiffCopyStatus {
-    Lines(usize),
+    Lines {
+        line_count: usize,
+        char_count: usize,
+    },
     Characters(usize),
 }
 
@@ -1515,7 +1521,15 @@ fn selected_diff_copy_text(
     row_selection.map(|(a, b)| {
         let lo = a.min(b);
         let hi = a.max(b);
-        (view.selection_text(a, b), DiffCopyStatus::Lines(hi - lo + 1))
+        let text = view.selection_text(a, b);
+        let char_count = text.chars().count();
+        (
+            text,
+            DiffCopyStatus::Lines {
+                line_count: hi - lo + 1,
+                char_count,
+            },
+        )
     })
 }
 
@@ -2419,7 +2433,13 @@ mod tests {
 
         assert_eq!(
             selected_diff_copy_text(&view, None, Some((1, 0))),
-            Some((String::from("first\nsecond"), DiffCopyStatus::Lines(2)))
+            Some((
+                String::from("first\nsecond"),
+                DiffCopyStatus::Lines {
+                    line_count: 2,
+                    char_count: 12,
+                },
+            ))
         );
     }
 
