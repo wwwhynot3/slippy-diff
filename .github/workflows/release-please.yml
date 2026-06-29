@@ -100,7 +100,7 @@ jobs:
           gh release upload "$RELEASE_TAG" "$asset" --clobber
 
   linux-appimages:
-    name: Linux ${{ matrix.asset_arch }} x11 AppImage
+    name: Linux ${{ matrix.asset_arch }} ${{ matrix.backend }} AppImage
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
     runs-on: ${{ matrix.runner }}
@@ -110,10 +110,24 @@ jobs:
         include:
           - runner: ubuntu-22.04
             asset_arch: amd64
+            backend: x11
             linuxdeploy_arch: x86_64
+            cargo_features: ""
+          - runner: ubuntu-22.04
+            asset_arch: amd64
+            backend: wayland
+            linuxdeploy_arch: x86_64
+            cargo_features: "--features wayland"
           - runner: ubuntu-22.04-arm
             asset_arch: arm64
+            backend: x11
             linuxdeploy_arch: aarch64
+            cargo_features: ""
+          - runner: ubuntu-22.04-arm
+            asset_arch: arm64
+            backend: wayland
+            linuxdeploy_arch: aarch64
+            cargo_features: "--features wayland"
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       RELEASE_TAG: ${{ needs.release-please.outputs.tag_name }}
@@ -147,13 +161,16 @@ jobs:
             libfontconfig1-dev \
             libpango1.0-dev \
             libgtk-3-dev \
+            libwayland-dev \
+            libxkbcommon-dev \
+            libdbus-1-dev \
+            wayland-protocols \
             patchelf \
             pkg-config \
-            python3 \
             wget
 
-      - name: Build x11 binary
-        run: cargo build --release --locked
+      - name: Build ${{ matrix.backend }} binary
+        run: cargo build --release --locked ${{ matrix.cargo_features }}
 
       - name: Create AppImage AppDir
         run: |
@@ -169,44 +186,7 @@ jobs:
           Categories=Utility;TextTools;
           Terminal=false
           DESKTOP
-          python3 - <<'PY'
-          import struct
-          import zlib
-
-          size = 256
-          raw = bytearray()
-          for y in range(size):
-              raw.append(0)
-              for x in range(size):
-                  if 32 <= x < 224 and 32 <= y < 224:
-                      r, g, b, a = 36, 105, 92, 255
-                      if 72 <= x < 184 and 74 <= y < 92:
-                          r, g, b = 234, 241, 239
-                      if 72 <= x < 184 and 118 <= y < 136:
-                          r, g, b = 234, 241, 239
-                      if 72 <= x < 154 and 162 <= y < 180:
-                          r, g, b = 234, 241, 239
-                  else:
-                      r, g, b, a = 0, 0, 0, 0
-                  raw.extend((r, g, b, a))
-
-          def chunk(kind, data):
-              return (
-                  struct.pack(">I", len(data))
-                  + kind
-                  + data
-                  + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
-              )
-
-          png = (
-              b"\x89PNG\r\n\x1a\n"
-              + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 6, 0, 0, 0))
-              + chunk(b"IDAT", zlib.compress(bytes(raw), 9))
-              + chunk(b"IEND", b"")
-          )
-          with open("AppDir/usr/share/icons/hicolor/256x256/apps/slippy.png", "wb") as f:
-              f.write(png)
-          PY
+          cp assets/icons/png/slippy-256.png AppDir/usr/share/icons/hicolor/256x256/apps/slippy.png
           cp AppDir/usr/share/applications/slippy.desktop AppDir/slippy.desktop
           cp AppDir/usr/share/icons/hicolor/256x256/apps/slippy.png AppDir/slippy.png
 
@@ -219,10 +199,10 @@ jobs:
           ARCH="${{ matrix.linuxdeploy_arch }}" ./squashfs-root/AppRun --appdir AppDir --output appimage
           appimage="$(find . -maxdepth 1 -name '*.AppImage' ! -name 'linuxdeploy-*.AppImage' -print -quit)"
           test -n "$appimage"
-          mv "$appimage" "slippy-v${RELEASE_VERSION}-linux-${{ matrix.asset_arch }}-x11.AppImage"
+          mv "$appimage" "slippy-v${RELEASE_VERSION}-linux-${{ matrix.asset_arch }}-${{ matrix.backend }}.appimage"
 
       - name: Upload AppImage
-        run: gh release upload "$RELEASE_TAG" "slippy-v${RELEASE_VERSION}-linux-${{ matrix.asset_arch }}-x11.AppImage" --clobber
+        run: gh release upload "$RELEASE_TAG" "slippy-v${RELEASE_VERSION}-linux-${{ matrix.asset_arch }}-${{ matrix.backend }}.appimage" --clobber
 
   windows-binaries:
     name: Windows ${{ matrix.asset_arch }} binary
@@ -265,8 +245,8 @@ jobs:
           Copy-Item "target/${{ matrix.target }}/release/slippy.exe" $asset
           gh release upload "$env:RELEASE_TAG" $asset --clobber
 
-  macos-universal-binary:
-    name: macOS universal binary
+  macos-universal-dmg:
+    name: macOS universal DMG
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
     runs-on: macos-15-intel
@@ -295,9 +275,73 @@ jobs:
           lipo -create \
             target/x86_64-apple-darwin/release/slippy \
             target/aarch64-apple-darwin/release/slippy \
-            -output "dist/slippy-v${RELEASE_VERSION}-macos-universal"
-          chmod 755 "dist/slippy-v${RELEASE_VERSION}-macos-universal"
-          lipo -info "dist/slippy-v${RELEASE_VERSION}-macos-universal"
+            -output "dist/slippy-universal"
+          chmod 755 "dist/slippy-universal"
+          lipo -info "dist/slippy-universal"
 
-      - name: Upload binary
-        run: gh release upload "$RELEASE_TAG" "dist/slippy-v${RELEASE_VERSION}-macos-universal" --clobber
+      - name: Create app bundle
+        run: |
+          app="dist/Slippy.app"
+          rm -rf "$app" dist/Slippy.iconset
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" dist/Slippy.iconset
+          cp "dist/slippy-universal" "$app/Contents/MacOS/slippy"
+          chmod 755 "$app/Contents/MacOS/slippy"
+          cp assets/icons/png/slippy-16.png dist/Slippy.iconset/icon_16x16.png
+          cp assets/icons/png/slippy-32.png dist/Slippy.iconset/icon_16x16@2x.png
+          cp assets/icons/png/slippy-32.png dist/Slippy.iconset/icon_32x32.png
+          cp assets/icons/png/slippy-64.png dist/Slippy.iconset/icon_32x32@2x.png
+          cp assets/icons/png/slippy-128.png dist/Slippy.iconset/icon_128x128.png
+          cp assets/icons/png/slippy-256.png dist/Slippy.iconset/icon_128x128@2x.png
+          cp assets/icons/png/slippy-256.png dist/Slippy.iconset/icon_256x256.png
+          cp assets/icons/png/slippy-512.png dist/Slippy.iconset/icon_256x256@2x.png
+          cp assets/icons/png/slippy-512.png dist/Slippy.iconset/icon_512x512.png
+          iconutil -c icns -o "$app/Contents/Resources/slippy.icns" dist/Slippy.iconset
+          cat > "$app/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleDevelopmentRegion</key>
+            <string>en</string>
+            <key>CFBundleDisplayName</key>
+            <string>Slippy</string>
+            <key>CFBundleExecutable</key>
+            <string>slippy</string>
+            <key>CFBundleIconFile</key>
+            <string>slippy</string>
+            <key>CFBundleIdentifier</key>
+            <string>dev.wwwhynot3.slippy</string>
+            <key>CFBundleName</key>
+            <string>Slippy</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleShortVersionString</key>
+            <string>${RELEASE_VERSION}</string>
+            <key>CFBundleVersion</key>
+            <string>${RELEASE_VERSION}</string>
+            <key>LSApplicationCategoryType</key>
+            <string>public.app-category.developer-tools</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict "$app"
+
+      - name: Create DMG
+        run: |
+          rm -rf dist/dmg
+          mkdir -p dist/dmg
+          cp -R "dist/Slippy.app" dist/dmg/
+          ln -s /Applications dist/dmg/Applications
+          hdiutil create \
+            -volname "Slippy" \
+            -srcfolder "dist/dmg" \
+            -ov \
+            -format UDZO \
+            "dist/slippy-v${RELEASE_VERSION}-macos-universal.dmg"
+          hdiutil imageinfo "dist/slippy-v${RELEASE_VERSION}-macos-universal.dmg"
+
+      - name: Upload DMG
+        run: gh release upload "$RELEASE_TAG" "dist/slippy-v${RELEASE_VERSION}-macos-universal.dmg" --clobber
