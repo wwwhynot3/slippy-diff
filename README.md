@@ -15,8 +15,10 @@ Built with Rust and [`fltk-rs`](https://github.com/fltk-rs/fltk-rs).
   - Soft row coloring for pure insertions/deletions.
   - Neutral replacement blocks for paired edits, with red/green token highlights for the exact changed fragments.
   - A compact change overview rail showing where edits occur in the rendered diff.
+  - Mouse selection for diff rows and text-column character ranges; `Ctrl/Cmd+C` copies the selected rendered text.
   - Adaptive folding: large diffs collapse runs of unchanged context into a `... N unchanged lines ...` marker instead of scrolling forever.
 - **Copy Diff** copies standard unified diff text (with `@@` hunks and `---`/`+++` headers) from the same computed diff the display derives from.
+- **Prev / Next change navigation** jumps between visible change regions and marks the active region in the canvas.
 - **Pin toggle** keeps the window above other windows where the native window manager supports FLTK's topmost request.
 - **Debounced auto-diff** (300 ms) for normal-sized edits.
 - **Manual Compare** for large input — combined size above 256 KiB or 8,000 lines skips auto-diff and asks you to compare explicitly.
@@ -111,7 +113,9 @@ FLTK maps `Cmd` on macOS and `Ctrl` on Linux/Windows through `Shortcut::Command`
 
 ## Config & privacy
 
-Slippy stores only UI metadata through the OS config directory (app identity `dev.wwwhynot3.slippy`): window size, the input/diff split (default 0.45, clamped 0.30–0.70), theme, and font choices.
+Slippy stores only UI metadata through the OS config directory (app identity `dev.wwwhynot3.slippy`): window size, the input/diff split (default 0.45, clamped 0.30–0.70), pin state, theme, font choices, and optional diff tuning overrides.
+
+The optional `[diff]` config table can override `debounce_ms`, `auto_diff_max_bytes`, `auto_diff_max_lines`, `unified_context_radius`, `inline_max_changed_ratio`, `display_full_context_max_lines`, `similarity_pairing_max_lines`, and `alignment_band`. Invalid values are ignored so the built-in defaults still apply.
 
 It **never** persists pasted text or diff output. Invalid or missing config falls back to defaults and reports a status message; save errors never crash the app.
 
@@ -120,6 +124,8 @@ It **never** persists pasted text or diff output. Invalid or missing config fall
 - App opens and closes with no daemon, tray, or background process.
 - Paste Left / Paste Right target the correct pane; keyboard paste still works inside the editors.
 - Compare, Swap, Clear, and Copy Diff all work.
+- Selecting whole rows in the diff canvas then pressing `Ctrl/Cmd+C` copies those rendered rows.
+- Dragging across the diff text column then pressing `Ctrl/Cmd+C` copies only the selected characters, including Unicode text.
 - Debounced auto-diff updates shortly after normal edits.
 - Rapid edits never let a stale diff overwrite newer text.
 - Large input shows the "press Compare" status, and manual Compare updates the diff.

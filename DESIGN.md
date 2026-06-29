@@ -86,6 +86,7 @@ Line-level diff coloring is required:
 - The old/new gutters are semantic references: inserted rows leave the old line blank, deleted rows leave the new line blank, and later context rows may show offset line numbers.
 - The rendered review header shows `LEFT  RIGHT  K | Text` above the diff rows, with a separator beneath it.
 - `---` and `+++` header lines are part of the plain unified diff text emitted by Copy Diff.
+- The diff canvas supports mouse selection for whole rows and text-column character ranges. `Ctrl/Cmd+C` copies selected rendered text, preferring character selection over row selection. The Copy Diff button still copies standard unified diff text for the full current diff.
 - Preserve visible marker and line-number gutters so the diff remains understandable even if colors are hard to distinguish.
 - An entirely uncolored or blank rendered diff is a defect unless FLTK drawing is proven impossible during build verification.
 - Adaptive folding: show all lines when the op count does not exceed `display_full_context_max_lines`; beyond that, display context lines within `unified_context_radius` with a `... N unchanged lines ...` marker.

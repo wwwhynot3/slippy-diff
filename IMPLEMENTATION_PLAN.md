@@ -90,7 +90,7 @@ Diff output contract:
 | Case | Output |
 | --- | --- |
 | Equal text | Exactly `No differences\n` |
-| Changed text (display) | Structured `Vec<DiffOp>` rendered with background colors via FLTK `StyleTableEntryExt`; no `@@` lines in display |
+| Changed text (display) | Structured `Vec<DiffOp>` converted to `RenderedDiffView` and drawn on the custom diff canvas; no `@@` lines in display |
 | Changed text (copy) | Standard unified text via `render_unified_diff` from the same ops; includes `@@` hunk headers |
 | Newline policy | Display and copy output always end with exactly one trailing newline |
 
@@ -140,14 +140,15 @@ Layout:
 ```text
 [ Left Input 50% ][ Right Input 50% ]
 [ Paste Left | Paste Right | Compare | Swap | Clear | Copy Diff ]
-[ Read-only Unified Diff Result ]
+[ Unified Review | Prev | Next | Pin | Theme | Summary ]
+[ Read-only custom diff canvas ]
 [ Bottom Status Bar ]
 ```
 
 Layout rules:
 
 - Use FLTK `TextEditor` for both input panes.
-- Use FLTK `TextDisplay` or an equivalent read-only styled text widget for the diff pane.
+- Use a custom-drawn FLTK diff canvas for the read-only result pane.
 - The action bar is fixed-height and does not participate in the split ratio.
 - The status bar is fixed-height.
 - Persist only the input-vs-diff split, not pasted text.
@@ -165,6 +166,8 @@ Button rules:
 | Copy Diff | Enabled when a current diff result exists, including `No differences\n` |
 | Prev | Enabled when a current diff has at least one change; steps to the previous change region (wraps) |
 | Next | Enabled when a current diff has at least one change; steps to the next change region (wraps) |
+| Pin | Toggles native always-on-top and persists `pinned` in config |
+| Theme | Cycles System / Light / Dark, immediately recolors the window, and persists `theme` in config |
 
 Diff navigation:
 
@@ -172,6 +175,13 @@ Diff navigation:
 - Navigation wraps around at both ends. From a fresh diff the first Prev or Next lands on the first change.
 - The active region is marked with a soft `Selection` strip on the canvas's left edge; status reads `Change N of M.` during navigation.
 - The navigation cursor is UI-local ephemeral state (`Rc<Cell<Option<usize>>>`); it is not persisted and is not part of `app_state`. It resets to `None` whenever a new diff result is applied or the inputs are cleared.
+
+Diff canvas selection:
+
+- Drag outside the text column to select whole rendered rows.
+- Drag inside the text column to select a character range; character selection wins over row selection.
+- `Ctrl/Cmd+C` while the canvas is focused copies the selected rendered text. Without a canvas selection, use the Copy Diff button or shortcut to copy the full standard unified diff.
+- Character selection is based on character indices rather than bytes, so Unicode text copies safely.
 
 Status behavior:
 
@@ -188,6 +198,9 @@ Status behavior:
 | Config load invalid | Use defaults | `Config invalid; using defaults.` |
 | Config save failure | Keep app running | `Could not save layout config.` |
 | Prev/Next navigation | Preserve current diff | `Change N of M.` |
+| Row selection copied | Preserve current diff | `Copied N lines, M characters.` |
+| Character selection copied | Preserve current diff | `Copied N characters.` |
+| Theme cycled | Re-color whole window | `Theme: System/Light/Dark.` |
 
 Keyboard shortcuts:
 
@@ -198,6 +211,8 @@ Keyboard shortcuts:
 | Ctrl/Cmd+R | Paste Right |
 | Ctrl/Cmd+Shift+S | Swap |
 | Ctrl/Cmd+Shift+C | Copy Diff |
+| Ctrl/Cmd+C in diff canvas | Copy selected rendered rows or characters |
+| Ctrl/Cmd+Shift+P | Toggle Pin |
 | Ctrl/Cmd+Shift+Up | Previous change |
 | Ctrl/Cmd+Shift+Down | Next change |
 | Ctrl/Cmd+Shift+T | Cycle theme (System / Light / Dark) |
@@ -216,9 +231,9 @@ Focus and accessibility basics:
 
 ## Visual Contract
 
-Line-level diff coloring is required for v1. Plain prefixes are retained, but an entirely uncolored diff is a defect unless FLTK styling is proven impossible during build verification.
+Line-level diff coloring is required for v1. Plain prefixes are retained, but an entirely uncolored diff is a defect unless FLTK drawing is proven impossible during build verification.
 
-Use FLTK text styling, such as style buffers and style table entries, to apply per-line colors based on `DiffLineKind`. Show line numbers on both input editors and the diff display. For replacement blocks, pair similar deleted and inserted lines before rendering; reliable pairs use inline `[-removed][+added]` display, while unmatched lines stay line-level.
+Use the custom diff canvas to draw per-row backgrounds, semantic old/new gutters, row markers, inline token backgrounds, selected rows, selected character spans, active-change strips, and the overview rail. Input panes keep FLTK `TextEditor` behavior with custom line-number gutters. For replacement blocks, pair similar deleted and inserted lines before rendering; reliable pairs use inline token highlighting, while unmatched lines stay line-level.
 
 Color tokens:
 
@@ -255,7 +270,7 @@ edit/paste
   -> AppState marks dirty
   -> if should_auto_diff: debounce 300ms
   -> state creates DiffRequest with request_id and cloned text
-  -> worker computes diff_core::build_unified_diff(left, right)
+  -> worker computes diff_core::build_display_diff(left, right)
   -> UI receives worker result via FLTK-safe channel
   -> state applies only if request_id is latest and no edit happened after request start
   -> UI refreshes diff pane and status
@@ -360,7 +375,8 @@ Manual GUI smoke:
 - Debounced auto-diff updates after normal edits.
 - Rapid edits do not allow stale worker output to overwrite newer text.
 - Large input shows manual Compare status and manual Compare updates diff.
-- Insert, delete, and hunk line colors are visible in light and dark themes.
+- Insert, delete, replacement, inline token, selection, and hunk colors are visible in light and dark themes.
+- Row selection and text-column character selection copy the expected rendered text.
 - The action bar is visually between input and diff.
 - Small window layout remains usable.
 - Idle CPU returns near zero after debounce.

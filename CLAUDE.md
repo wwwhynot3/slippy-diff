@@ -25,7 +25,8 @@ cargo run --features wayland         # optional Wayland build
 
 - `diff_core` — pure diff logic (`similar`-based unified diff, line classification, inline replacement pairing, auto-diff thresholds). **Must not** depend on FLTK, clipboard (`arboard`), `config`, or threading.
 - `app_state` — the UI-independent state machine (text, dirty/stale flags, monotonic request ids, status transitions). **Must not** depend on FLTK or `arboard`. Clipboard failures reach it only as status strings.
-- `ui_fltk` — owns all FLTK widgets, styling/coloring, clipboard integration, worker-thread spawning, debounce timers, and keyboard shortcuts. The only module allowed to touch `arboard` and FLTK.
+- `diff_view` — converts `diff_core::DisplayDiff` into rendered rows, semantic old/new gutters, fold rows, change regions, overview marks, and row/character selection text. **Must not** depend on FLTK, clipboard, config, or threading.
+- `ui_fltk` — owns all FLTK widgets, custom drawing, clipboard integration, worker-thread spawning, debounce timers, and keyboard shortcuts. The only module allowed to touch `arboard` and FLTK.
 - `config` — persists only layout/theme/font metadata. **Must never** serialize pasted text or diff output (a privacy invariant, asserted in tests).
 
 `diff_core` and `app_state` are pure and fully unit-tested; `ui_fltk` is the integration boundary and is verified by the manual GUI smoke checklist in `IMPLEMENTATION_PLAN.md`.
@@ -49,7 +50,16 @@ Results cross back to the UI thread through a single FLTK channel (`UiMessage::D
 - Equal text → exactly `No differences\n`.
 - Output always ends with exactly one trailing newline.
 - Display consumes `Vec<DiffOp>` directly; copy renders standard unified text via `render_unified_diff`.
-- Similarity-weighted banded alignment (fuzzy LCS); inline fragments get background colors via FLTK `StyleTableEntryExt` — no text brackets, no `@@` in display.
+- Similarity-weighted banded alignment (fuzzy LCS); inline fragments become rendered canvas segments with token backgrounds — no text brackets, no `@@` in display.
+
+### Diff canvas selection
+
+The read-only diff result is a custom canvas, not a `TextDisplay`. It supports two selection modes:
+
+- Drag outside the text column to select whole rendered rows.
+- Drag inside the text column to select character ranges; `Ctrl/Cmd+C` copies selected rendered text and prefers character selection over row selection.
+
+Keep this separate from Copy Diff: Copy Diff still renders the full standard unified diff via `render_unified_diff`.
 
 ### Config & privacy
 

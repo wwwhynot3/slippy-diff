@@ -6,7 +6,7 @@ Explicitly out-of-scope / deferred items. v1 functionality is complete; nothing 
 
 - Add a settings UI for theme and font selection after config-only overrides prove useful.
 - Consider a side-by-side aligned diff view after unified diff is stable in daily use.
-- Consider inline word diff only if line-level unified diff is not enough in real use.
+- Consider richer token-level diff tuning only if the current character-level inline highlighting is not enough in real use.
 - Consider optional always-on-top documentation per platform, but avoid built-in compositor-specific behavior in v1.
 - Consider compact button labels if real small-window use shows action bar crowding.
 
