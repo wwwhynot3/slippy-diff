@@ -773,6 +773,7 @@ pub fn run() -> Result<(), FltkError> {
         let handles = handles.clone();
         let selection = selection.clone();
         let char_selection = char_selection.clone();
+        let char_drag_anchor = Rc::new(Cell::new(None));
         let mut canvas = handles.borrow().diff_canvas.clone();
         canvas.set_visible_focus();
         canvas.handle(move |frame, event| match event {
@@ -796,11 +797,13 @@ pub fn run() -> Result<(), FltkError> {
                     };
                     if let Some(position) = char_position {
                         selection.set(None);
+                        char_drag_anchor.set(Some(position));
                         char_selection.set(Some(crate::diff_view::DiffCharSelection {
                             anchor: position,
                             focus: position,
                         }));
                     } else if let Some(row) = diff_row_at(app::event_y(), frame.y(), count) {
+                        char_drag_anchor.set(None);
                         char_selection.set(None);
                         selection.set(Some((row, row)));
                     }
@@ -811,6 +814,7 @@ pub fn run() -> Result<(), FltkError> {
             }
             Event::Drag => {
                 if let Some(active) = char_selection.get() {
+                    let anchor = char_drag_anchor.get().unwrap_or(active.anchor);
                     draw::set_font(Font::Courier, 14);
                     let (char_width, _) = draw::measure("M", false);
                     let next_focus = {
@@ -826,10 +830,7 @@ pub fn run() -> Result<(), FltkError> {
                         )
                     };
                     if let Some(focus) = next_focus {
-                        char_selection.set(Some(crate::diff_view::DiffCharSelection {
-                            anchor: active.anchor,
-                            focus,
-                        }));
+                        char_selection.set(Some(diff_char_selection_from_drag(anchor, focus)));
                         frame.redraw();
                     }
                 } else if let Some((anchor, _)) = selection.get() {
@@ -853,6 +854,7 @@ pub fn run() -> Result<(), FltkError> {
                 }
                 if app::event_key() == Key::Escape {
                     selection.set(None);
+                    char_drag_anchor.set(None);
                     char_selection.set(None);
                     frame.redraw();
                     return true;
@@ -1192,7 +1194,9 @@ fn copy_canvas_selection(state: &Rc<RefCell<AppState>>, handles: &Rc<RefCell<UiH
             DiffCopyStatus::Lines(line_count) => state
                 .borrow_mut()
                 .set_status(format!("Copied {line_count} lines.")),
-            DiffCopyStatus::Selection => state.borrow_mut().set_status("Copied selection."),
+            DiffCopyStatus::Characters(char_count) => state
+                .borrow_mut()
+                .set_status(format!("Copied {char_count} characters.")),
         }
     } else {
         state
@@ -1394,7 +1398,7 @@ fn diff_canvas_width(scroll_width: i32, scrollbar_size: i32) -> i32 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DiffCopyStatus {
     Lines(usize),
-    Selection,
+    Characters(usize),
 }
 
 fn diff_text_x(frame_x: i32) -> i32 {
@@ -1438,6 +1442,31 @@ fn diff_char_position_at(
     })
 }
 
+fn diff_char_selection_from_drag(
+    anchor: crate::diff_view::DiffCharPosition,
+    focus: crate::diff_view::DiffCharPosition,
+) -> crate::diff_view::DiffCharSelection {
+    let anchor_key = (anchor.row_index, anchor.char_index);
+    let focus_key = (focus.row_index, focus.char_index);
+    if anchor_key <= focus_key {
+        crate::diff_view::DiffCharSelection {
+            anchor,
+            focus: crate::diff_view::DiffCharPosition {
+                row_index: focus.row_index,
+                char_index: focus.char_index.saturating_add(1),
+            },
+        }
+    } else {
+        crate::diff_view::DiffCharSelection {
+            anchor: focus,
+            focus: crate::diff_view::DiffCharPosition {
+                row_index: anchor.row_index,
+                char_index: anchor.char_index.saturating_add(1),
+            },
+        }
+    }
+}
+
 fn diff_char_selection_span_for_row(
     selection: crate::diff_view::DiffCharSelection,
     row_index: usize,
@@ -1478,7 +1507,8 @@ fn selected_diff_copy_text(
     if let Some(selection) = char_selection {
         let text = view.char_selection_text(selection);
         if !text.is_empty() {
-            return Some((text, DiffCopyStatus::Selection));
+            let char_count = text.chars().count();
+            return Some((text, DiffCopyStatus::Characters(char_count)));
         }
     }
 
@@ -1840,10 +1870,11 @@ fn draw_diff_segment(
         draw::draw_rectf(x - 1, y + 3, width + 2, DIFF_ROW_HEIGHT - 6);
     }
     if let Some(span) = selected_chars {
-        let (char_width, _) = draw::measure("M", false);
-        let char_width = char_width.max(1);
-        let selection_x = x + span.start as i32 * char_width;
-        let selection_w = (span.end - span.start) as i32 * char_width;
+        let prefix = take_chars(text, span.start);
+        let selected = slice_chars(text, span.start, span.end);
+        let (prefix_w, _) = draw::measure(&prefix, false);
+        let (selection_w, _) = draw::measure(&selected, false);
+        let selection_x = x + prefix_w;
         if selection_w > 0 {
             draw::set_draw_color(selection);
             draw::draw_rectf(selection_x - 1, y + 3, selection_w + 2, DIFF_ROW_HEIGHT - 6);
@@ -1859,6 +1890,25 @@ fn draw_diff_segment(
         Align::Left | Align::Inside,
     );
     x + width
+}
+
+fn byte_index_for_char(text: &str, char_index: usize) -> usize {
+    text.char_indices()
+        .map(|(byte_index, _)| byte_index)
+        .nth(char_index)
+        .unwrap_or(text.len())
+}
+
+fn slice_chars(text: &str, start: usize, end: usize) -> String {
+    let lo = start.min(end);
+    let hi = start.max(end);
+    let start_byte = byte_index_for_char(text, lo);
+    let end_byte = byte_index_for_char(text, hi);
+    text[start_byte..end_byte].to_string()
+}
+
+fn take_chars(text: &str, end: usize) -> String {
+    slice_chars(text, 0, end)
 }
 
 fn diff_row_bg(kind: crate::diff_view::DiffViewRowKind, palette: Palette) -> Color {
@@ -2261,6 +2311,61 @@ mod tests {
     }
 
     #[test]
+    fn diff_char_selection_from_drag_includes_both_endpoint_characters() {
+        let anchor = crate::diff_view::DiffCharPosition {
+            row_index: 0,
+            char_index: 1,
+        };
+        let focus = crate::diff_view::DiffCharPosition {
+            row_index: 0,
+            char_index: 0,
+        };
+
+        let selection = diff_char_selection_from_drag(anchor, focus);
+
+        assert_eq!(
+            diff_char_selection_span_for_row(selection, 0, 3),
+            Some(0..2)
+        );
+    }
+
+    #[test]
+    fn reverse_drag_on_inline_diff_keeps_unselected_trailing_character() {
+        let diff = crate::diff_core::build_display_diff(
+            "111",
+            "112",
+            &crate::diff_core::DiffOptions::default(),
+        );
+        let view =
+            crate::diff_view::build_diff_view(&diff, &crate::diff_core::DiffOptions::default());
+        let new_row_index = view
+            .rows
+            .iter()
+            .position(|row| row.kind == crate::diff_view::DiffViewRowKind::ReplaceNew)
+            .expect("inline replacement should render a new row");
+        let selection = diff_char_selection_from_drag(
+            crate::diff_view::DiffCharPosition {
+                row_index: new_row_index,
+                char_index: 1,
+            },
+            crate::diff_view::DiffCharPosition {
+                row_index: new_row_index,
+                char_index: 0,
+            },
+        );
+
+        assert_eq!(view.row_text(new_row_index).as_deref(), Some("112"));
+        assert_eq!(
+            diff_char_selection_span_for_row(selection, new_row_index, 3),
+            Some(0..2)
+        );
+        assert_eq!(
+            selected_diff_copy_text(&view, Some(selection), None),
+            Some((String::from("11"), DiffCopyStatus::Characters(2)))
+        );
+    }
+
+    #[test]
     fn diff_char_selection_span_for_row_returns_multiline_ranges() {
         let selection = crate::diff_view::DiffCharSelection {
             anchor: crate::diff_view::DiffCharPosition {
@@ -2304,7 +2409,7 @@ mod tests {
 
         assert_eq!(
             selected_diff_copy_text(&view, Some(char_selection), Some((0, 1))),
-            Some((String::from("bcd"), DiffCopyStatus::Selection))
+            Some((String::from("bcd"), DiffCopyStatus::Characters(3)))
         );
     }
 
