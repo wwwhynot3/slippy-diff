@@ -1,0 +1,6 @@
+# CachyOS/Arch: Rust's default self-contained linking (bundled lld) fails to
+# find libgcc_s while linking the C++ FLTK static library, failing every build
+# (including `cargo run --features wayland`) with `unable to find library -lgcc_s`.
+# Use the system linker/glibc instead, which knows gcc's library search paths.
+[target.'cfg(target_os = "linux")']
+rustflags = ["-C", "link-self-contained=no"]
