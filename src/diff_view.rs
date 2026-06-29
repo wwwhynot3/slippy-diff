@@ -94,6 +94,29 @@ impl RenderedDiffView {
         }
         regions
     }
+
+    /// The rendered text of a single row (its text column), or `None` for an
+    /// out-of-range index.
+    pub fn row_text(&self, index: usize) -> Option<String> {
+        self.rows.get(index).map(|row| {
+            row.segments
+                .iter()
+                .map(|segment| segment.text.as_str())
+                .collect()
+        })
+    }
+
+    /// The plain text of the selected row range (inclusive on both ends,
+    /// order-independent), one line per row. Used when copying a user
+    /// selection from the diff canvas.
+    pub fn selection_text(&self, a: usize, b: usize) -> String {
+        let lo = a.min(b);
+        let hi = a.max(b);
+        (lo..=hi)
+            .filter_map(|index| self.row_text(index))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
 }
 
 enum FoldItem {
@@ -598,5 +621,16 @@ mod tests {
     fn change_regions_empty_for_no_rows() {
         let view = view_of(&[]);
         assert!(view.change_regions().is_empty());
+    }
+
+    #[test]
+    fn selection_text_joins_selected_rows_as_plain_text() {
+        let diff = build_display_diff("a\nb\nc\n", "a\nx\nc\n", &DiffOptions::default());
+        let view = build_diff_view(&diff, &DiffOptions::default());
+        // rows: Context "a", Delete "b", Insert "x", Context "c"
+        assert_eq!(view.selection_text(0, 0), "a");
+        assert_eq!(view.selection_text(1, 2), "b\nx");
+        // Order-independent: (2, 1) yields the same inclusive range.
+        assert_eq!(view.selection_text(2, 1), "b\nx");
     }
 }

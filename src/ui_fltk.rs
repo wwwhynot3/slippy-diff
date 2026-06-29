@@ -9,7 +9,7 @@ use fltk::{
     app,
     button::Button,
     draw,
-    enums::{Align, Color, Cursor, Event, Font, FrameType, Shortcut},
+    enums::{Align, Color, Cursor, Event, Font, FrameType, Key, Shortcut},
     frame::Frame,
     group::{Flex, FlexType, Scroll, ScrollType},
     prelude::*,
@@ -128,6 +128,7 @@ struct UiHandles {
     prev_change: Button,
     next_change: Button,
     nav_cursor: Rc<Cell<Option<usize>>>,
+    selection: Rc<Cell<Option<(usize, usize)>>>,
     clipboard: Option<Clipboard>,
 }
 
@@ -249,11 +250,13 @@ pub fn run() -> Result<(), FltkError> {
     )));
     let stale_diff_notice = Rc::new(Cell::new(false));
     let nav_cursor = Rc::new(Cell::new(Option::<usize>::None));
+    let selection = Rc::new(Cell::new(None));
     let (diff_scroll, diff_canvas) = make_diff_canvas(
         palette,
         initial_diff_view.clone(),
         stale_diff_notice.clone(),
         nav_cursor.clone(),
+        selection.clone(),
     );
     let mut overview_rail = Frame::default();
     overview_rail.set_frame(FrameType::FlatBox);
@@ -405,6 +408,7 @@ pub fn run() -> Result<(), FltkError> {
         prev_change: prev_change.clone(),
         next_change: next_change.clone(),
         nav_cursor: nav_cursor.clone(),
+        selection: selection.clone(),
         clipboard,
     }));
     render_state(&state, &handles);
@@ -522,6 +526,64 @@ pub fn run() -> Result<(), FltkError> {
     }
 
     {
+        // Mouse-select a range of diff rows and copy them with Ctrl/Cmd+C.
+        let state = state.clone();
+        let handles = handles.clone();
+        let selection = selection.clone();
+        let mut canvas = handles.borrow().diff_canvas.clone();
+        canvas.set_visible_focus();
+        canvas.handle(move |frame, event| match event {
+            Event::Focus | Event::Unfocus => true,
+            Event::Push => {
+                let count = handles.borrow().diff_view.borrow().rows.len();
+                if count > 0 {
+                    let max_row = (count - 1) as i32;
+                    let row = ((app::event_y() - frame.y() - DIFF_HEADER_HEIGHT)
+                        / DIFF_ROW_HEIGHT)
+                        .clamp(0, max_row) as usize;
+                    selection.set(Some((row, row)));
+                    let _ = frame.take_focus();
+                    frame.redraw();
+                }
+                true
+            }
+            Event::Drag => {
+                if let Some((anchor, _)) = selection.get() {
+                    let count = handles.borrow().diff_view.borrow().rows.len();
+                    if count > 0 {
+                        let max_row = (count - 1) as i32;
+                        let row = ((app::event_y() - frame.y() - DIFF_HEADER_HEIGHT)
+                            / DIFF_ROW_HEIGHT)
+                            .clamp(0, max_row) as usize;
+                        selection.set(Some((anchor, row)));
+                        frame.redraw();
+                    }
+                }
+                true
+            }
+            Event::Released => true,
+            Event::KeyDown => {
+                let is_copy = (app::event_state() & Shortcut::Command) == Shortcut::Command
+                    && {
+                        let key = app::event_key();
+                        key == Key::from_char('c') || key == Key::from_char('C')
+                    };
+                if is_copy && selection.get().is_some() {
+                    copy_canvas_selection(&state, &handles);
+                    return true;
+                }
+                if app::event_key() == Key::Escape {
+                    selection.set(None);
+                    frame.redraw();
+                    return true;
+                }
+                false
+            }
+            _ => false,
+        });
+    }
+
+    {
         let state = state.clone();
         let handles = handles.clone();
         let debounce_generation = debounce_generation.clone();
@@ -553,6 +615,7 @@ pub fn run() -> Result<(), FltkError> {
                 UiMessage::DiffReady(result) => {
                     state.borrow_mut().apply_result(result);
                     handles.borrow().nav_cursor.set(None);
+                    handles.borrow().selection.set(None);
                     render_state(&state, &handles);
                 }
             }
@@ -621,6 +684,7 @@ fn make_diff_canvas(
     view: Rc<RefCell<crate::diff_view::RenderedDiffView>>,
     stale_notice: Rc<Cell<bool>>,
     nav_cursor: Rc<Cell<Option<usize>>>,
+    selection: Rc<Cell<Option<(usize, usize)>>>,
 ) -> (Scroll, Frame) {
     let mut scroll = Scroll::default();
     scroll.set_type(ScrollType::Both);
@@ -638,12 +702,20 @@ fn make_diff_canvas(
         let view = view.clone();
         let stale_notice = stale_notice.clone();
         let nav_cursor = nav_cursor.clone();
+        let selection = selection.clone();
         move |frame| {
             let view = view.borrow();
             let highlight = nav_cursor
                 .get()
                 .and_then(|idx| view.change_regions().get(idx).cloned());
-            draw_diff_canvas(frame, &view, stale_notice.get(), highlight, palette)
+            draw_diff_canvas(
+                frame,
+                &view,
+                stale_notice.get(),
+                highlight,
+                selection.get(),
+                palette,
+            )
         }
     });
     scroll.end();
@@ -776,6 +848,7 @@ fn spawn_diff_worker(request: crate::app_state::DiffRequest, sender: app::Sender
 fn clear_all(state: &Rc<RefCell<AppState>>, handles: &Rc<RefCell<UiHandles>>) {
     state.borrow_mut().clear();
     handles.borrow().nav_cursor.set(None);
+    handles.borrow().selection.set(None);
     {
         let handles = handles.borrow();
         let mut left_buffer = handles.left_buffer.clone();
@@ -784,6 +857,32 @@ fn clear_all(state: &Rc<RefCell<AppState>>, handles: &Rc<RefCell<UiHandles>>) {
         right_buffer.set_text("");
     }
     state.borrow_mut().set_status(STATUS_CLEARED);
+    render_state(state, handles);
+}
+
+fn copy_canvas_selection(state: &Rc<RefCell<AppState>>, handles: &Rc<RefCell<UiHandles>>) {
+    let (text, line_count) = match handles.borrow().selection.get() {
+        Some((a, b)) => {
+            let lo = a.min(b);
+            let hi = a.max(b);
+            let text = handles.borrow().diff_view.borrow().selection_text(a, b);
+            (text, hi - lo + 1)
+        }
+        None => return,
+    };
+    let copied = match handles.borrow_mut().clipboard.as_mut() {
+        Some(clipboard) => clipboard.set_text(text).is_ok(),
+        None => false,
+    };
+    if copied {
+        state
+            .borrow_mut()
+            .set_status(format!("Copied {line_count} lines."));
+    } else {
+        state
+            .borrow_mut()
+            .set_status("Copy failed: clipboard unavailable.");
+    }
     render_state(state, handles);
 }
 
@@ -1072,6 +1171,7 @@ fn draw_diff_canvas(
     view: &crate::diff_view::RenderedDiffView,
     stale_notice: bool,
     highlight: Option<std::ops::Range<usize>>,
+    selection: Option<(usize, usize)>,
     palette: Palette,
 ) {
     draw::set_draw_color(palette.pane);
@@ -1085,8 +1185,13 @@ fn draw_diff_canvas(
         return;
     }
 
-    for row in &view.rows {
-        draw_diff_row(frame, y, row, palette);
+    let (sel_lo, sel_hi) = match selection {
+        Some((a, b)) => (a.min(b), a.max(b)),
+        None => (usize::MAX, 0),
+    };
+    for (idx, row) in view.rows.iter().enumerate() {
+        let selected = idx >= sel_lo && idx <= sel_hi;
+        draw_diff_row(frame, y, row, selected, palette);
         y += DIFF_ROW_HEIGHT;
     }
 
@@ -1179,8 +1284,18 @@ fn draw_empty_diff_row(frame: &Frame, y: i32, palette: Palette) {
     );
 }
 
-fn draw_diff_row(frame: &Frame, y: i32, row: &crate::diff_view::DiffViewRow, palette: Palette) {
-    let row_bg = diff_row_bg(row.kind, palette);
+fn draw_diff_row(
+    frame: &Frame,
+    y: i32,
+    row: &crate::diff_view::DiffViewRow,
+    selected: bool,
+    palette: Palette,
+) {
+    let row_bg = if selected {
+        palette.selection
+    } else {
+        diff_row_bg(row.kind, palette)
+    };
     draw::set_draw_color(row_bg);
     draw::draw_rectf(frame.x(), y, frame.w(), DIFF_ROW_HEIGHT);
 
