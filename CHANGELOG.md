@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/wwwhynot3/slippy-diff/compare/slippy-v0.2.1...slippy-v0.2.2) (2026-06-29)
+
+
+### Bug Fixes
+
+* restore linux arm64 release builds ([c89a416](https://github.com/wwwhynot3/slippy-diff/commit/c89a416f313c0567b436edb6512b6909d1039b29))
+
 ## [0.2.1](https://github.com/wwwhynot3/slippy-diff/compare/slippy-v0.2.0...slippy-v0.2.1) (2026-06-29)
 
 
