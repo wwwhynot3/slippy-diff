@@ -1438,6 +1438,38 @@ fn diff_char_position_at(
     })
 }
 
+fn diff_char_selection_span_for_row(
+    selection: crate::diff_view::DiffCharSelection,
+    row_index: usize,
+    row_char_count: usize,
+) -> Option<std::ops::Range<usize>> {
+    let start_key = (selection.anchor.row_index, selection.anchor.char_index);
+    let end_key = (selection.focus.row_index, selection.focus.char_index);
+    let (start, end) = if start_key <= end_key {
+        (selection.anchor, selection.focus)
+    } else {
+        (selection.focus, selection.anchor)
+    };
+
+    if row_index < start.row_index || row_index > end.row_index {
+        return None;
+    }
+    let range = if start.row_index == end.row_index {
+        start.char_index.min(row_char_count)..end.char_index.min(row_char_count)
+    } else if row_index == start.row_index {
+        start.char_index.min(row_char_count)..row_char_count
+    } else if row_index == end.row_index {
+        0..end.char_index.min(row_char_count)
+    } else {
+        0..row_char_count
+    };
+    if range.start == range.end {
+        None
+    } else {
+        Some(range)
+    }
+}
+
 fn selected_diff_copy_text(
     view: &crate::diff_view::RenderedDiffView,
     char_selection: Option<crate::diff_view::DiffCharSelection>,
@@ -1572,7 +1604,7 @@ fn draw_diff_canvas(
     stale_notice: bool,
     highlight: Option<std::ops::Range<usize>>,
     selection: Option<(usize, usize)>,
-    _char_selection: Option<crate::diff_view::DiffCharSelection>,
+    char_selection: Option<crate::diff_view::DiffCharSelection>,
     palette: Palette,
 ) {
     draw::set_draw_color(palette.pane);
@@ -1592,7 +1624,15 @@ fn draw_diff_canvas(
     };
     for (idx, row) in view.rows.iter().enumerate() {
         let selected = idx >= sel_lo && idx <= sel_hi;
-        draw_diff_row(frame, y, row, selected, palette);
+        let char_span = char_selection.and_then(|selection| {
+            let row_char_count = row
+                .segments
+                .iter()
+                .map(|segment| segment.text.chars().count())
+                .sum();
+            diff_char_selection_span_for_row(selection, idx, row_char_count)
+        });
+        draw_diff_row(frame, y, row, selected, char_span, palette);
         y += DIFF_ROW_HEIGHT;
     }
 
@@ -1690,6 +1730,7 @@ fn draw_diff_row(
     y: i32,
     row: &crate::diff_view::DiffViewRow,
     selected: bool,
+    char_span: Option<std::ops::Range<usize>>,
     palette: Palette,
 ) {
     let row_bg = if selected {
@@ -1746,10 +1787,28 @@ fn draw_diff_row(
 
     draw::set_font(Font::Courier, 14);
     let mut x = marker_right + DIFF_TEXT_LEFT_PAD;
+    let mut chars_before = 0usize;
     for segment in &row.segments {
         let color = diff_segment_text_color(segment.kind, row.kind, palette);
         let bg = diff_segment_bg(segment.kind, row.kind, palette);
-        x = draw_diff_segment(&segment.text, x, y, color, bg);
+        let segment_len = segment.text.chars().count();
+        let segment_selection = char_span.as_ref().and_then(|span| {
+            let segment_start = chars_before;
+            let segment_end = segment_start + segment_len;
+            let start = span.start.max(segment_start);
+            let end = span.end.min(segment_end);
+            (start < end).then_some((start - segment_start)..(end - segment_start))
+        });
+        x = draw_diff_segment(
+            &segment.text,
+            x,
+            y,
+            color,
+            bg,
+            palette.selection,
+            segment_selection,
+        );
+        chars_before += segment_len;
     }
 }
 
@@ -1766,11 +1825,29 @@ fn draw_line_number(line: Option<usize>, x: i32, y: i32, width: i32) {
     }
 }
 
-fn draw_diff_segment(text: &str, x: i32, y: i32, color: Color, bg: Color) -> i32 {
+fn draw_diff_segment(
+    text: &str,
+    x: i32,
+    y: i32,
+    color: Color,
+    bg: Color,
+    selection: Color,
+    selected_chars: Option<std::ops::Range<usize>>,
+) -> i32 {
     let (width, _) = draw::measure(text, false);
     if width > 0 {
         draw::set_draw_color(bg);
         draw::draw_rectf(x - 1, y + 3, width + 2, DIFF_ROW_HEIGHT - 6);
+    }
+    if let Some(span) = selected_chars {
+        let (char_width, _) = draw::measure("M", false);
+        let char_width = char_width.max(1);
+        let selection_x = x + span.start as i32 * char_width;
+        let selection_w = (span.end - span.start) as i32 * char_width;
+        if selection_w > 0 {
+            draw::set_draw_color(selection);
+            draw::draw_rectf(selection_x - 1, y + 3, selection_w + 2, DIFF_ROW_HEIGHT - 6);
+        }
     }
     draw::set_draw_color(color);
     draw::draw_text2(
@@ -2164,6 +2241,54 @@ mod tests {
     }
 
     #[test]
+    fn diff_char_selection_span_for_row_returns_single_row_range() {
+        let selection = crate::diff_view::DiffCharSelection {
+            anchor: crate::diff_view::DiffCharPosition {
+                row_index: 2,
+                char_index: 5,
+            },
+            focus: crate::diff_view::DiffCharPosition {
+                row_index: 2,
+                char_index: 1,
+            },
+        };
+
+        assert_eq!(
+            diff_char_selection_span_for_row(selection, 2, 10),
+            Some(1..5)
+        );
+        assert_eq!(diff_char_selection_span_for_row(selection, 1, 10), None);
+    }
+
+    #[test]
+    fn diff_char_selection_span_for_row_returns_multiline_ranges() {
+        let selection = crate::diff_view::DiffCharSelection {
+            anchor: crate::diff_view::DiffCharPosition {
+                row_index: 0,
+                char_index: 3,
+            },
+            focus: crate::diff_view::DiffCharPosition {
+                row_index: 2,
+                char_index: 2,
+            },
+        };
+
+        assert_eq!(
+            diff_char_selection_span_for_row(selection, 0, 6),
+            Some(3..6)
+        );
+        assert_eq!(
+            diff_char_selection_span_for_row(selection, 1, 6),
+            Some(0..6)
+        );
+        assert_eq!(
+            diff_char_selection_span_for_row(selection, 2, 6),
+            Some(0..2)
+        );
+        assert_eq!(diff_char_selection_span_for_row(selection, 3, 6), None);
+    }
+
+    #[test]
     fn selected_diff_copy_text_prefers_character_selection_over_row_selection() {
         let view = test_diff_view(&["abcdef", "second"]);
         let char_selection = crate::diff_view::DiffCharSelection {
@@ -2249,6 +2374,26 @@ mod tests {
         assert!(
             handler.contains("selection.set(None);"),
             "character selection path should clear row selection"
+        );
+    }
+
+    #[test]
+    fn diff_row_drawing_passes_character_selection_into_segments() {
+        let source = include_str!("ui_fltk.rs");
+        let start = source
+            .find("fn draw_diff_row(")
+            .expect("draw_diff_row should exist");
+        let end = start
+            + source[start..]
+                .find("\nfn draw_line_number")
+                .expect("draw_diff_row should end before draw_line_number");
+        let body = &source[start..end];
+
+        assert!(
+            body.contains("draw_diff_segment(")
+                && body.contains("palette.selection")
+                && body.contains("segment_selection"),
+            "character selection highlight must be drawn after segment backgrounds, not before them"
         );
     }
 
