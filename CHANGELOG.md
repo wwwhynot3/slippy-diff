@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/wwwhynot3/slippy-diff/compare/slippy-v0.2.2...slippy-v0.2.3) (2026-06-29)
+
+
+### Bug Fixes
+
+* package wayland appimages and macos dmg ([a8f01b7](https://github.com/wwwhynot3/slippy-diff/commit/a8f01b7849778971de6ad6746146b6c405f31c10))
+
 ## [0.2.2](https://github.com/wwwhynot3/slippy-diff/compare/slippy-v0.2.1...slippy-v0.2.2) (2026-06-29)
 
 
