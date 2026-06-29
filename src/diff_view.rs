@@ -54,6 +54,43 @@ pub struct ChangeMark {
     pub kind: ChangeMarkKind,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DiffCharPosition {
+    pub row_index: usize,
+    pub char_index: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DiffCharSelection {
+    pub anchor: DiffCharPosition,
+    pub focus: DiffCharPosition,
+}
+
+fn ordered_char_selection(selection: DiffCharSelection) -> (DiffCharPosition, DiffCharPosition) {
+    let anchor_key = (selection.anchor.row_index, selection.anchor.char_index);
+    let focus_key = (selection.focus.row_index, selection.focus.char_index);
+    if anchor_key <= focus_key {
+        (selection.anchor, selection.focus)
+    } else {
+        (selection.focus, selection.anchor)
+    }
+}
+
+fn byte_index_for_char(text: &str, char_index: usize) -> usize {
+    text.char_indices()
+        .map(|(byte_index, _)| byte_index)
+        .nth(char_index)
+        .unwrap_or(text.len())
+}
+
+fn slice_chars(text: &str, start: usize, end: usize) -> String {
+    let lo = start.min(end);
+    let hi = start.max(end);
+    let start_byte = byte_index_for_char(text, lo);
+    let end_byte = byte_index_for_char(text, hi);
+    text[start_byte..end_byte].to_string()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenderedDiffView {
     pub rows: Vec<DiffViewRow>,
@@ -114,6 +151,35 @@ impl RenderedDiffView {
         let hi = a.max(b);
         (lo..=hi)
             .filter_map(|index| self.row_text(index))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// The plain text inside a character selection. Selection endpoints use
+    /// character indices over each rendered row's text column and are half-open:
+    /// the anchor character is included and the focus character is excluded
+    /// after normalizing drag direction.
+    pub fn char_selection_text(&self, selection: DiffCharSelection) -> String {
+        let (start, end) = ordered_char_selection(selection);
+        if start.row_index == end.row_index {
+            return self
+                .row_text(start.row_index)
+                .map(|text| slice_chars(&text, start.char_index, end.char_index))
+                .unwrap_or_default();
+        }
+
+        (start.row_index..=end.row_index)
+            .filter_map(|row_index| {
+                let text = self.row_text(row_index)?;
+                let selected = if row_index == start.row_index {
+                    slice_chars(&text, start.char_index, text.chars().count())
+                } else if row_index == end.row_index {
+                    slice_chars(&text, 0, end.char_index)
+                } else {
+                    text
+                };
+                Some(selected)
+            })
             .collect::<Vec<_>>()
             .join("\n")
     }
@@ -632,5 +698,100 @@ mod tests {
         assert_eq!(view.selection_text(1, 2), "b\nx");
         // Order-independent: (2, 1) yields the same inclusive range.
         assert_eq!(view.selection_text(2, 1), "b\nx");
+    }
+
+    fn view_with_plain_rows(lines: &[&str]) -> RenderedDiffView {
+        RenderedDiffView {
+            rows: lines
+                .iter()
+                .map(|line| DiffViewRow {
+                    kind: DiffViewRowKind::Context,
+                    old_line: None,
+                    new_line: None,
+                    marker: "",
+                    segments: vec![DiffViewSegment {
+                        kind: DiffViewSegmentKind::Normal,
+                        text: (*line).to_string(),
+                    }],
+                    group_id: None,
+                })
+                .collect(),
+            summary: ChangeSummary {
+                removed: 0,
+                added: 0,
+                edited: 0,
+            },
+            marks: vec![],
+            left_no_newline: false,
+            right_no_newline: false,
+        }
+    }
+
+    #[test]
+    fn char_selection_text_copies_single_row_character_range() {
+        let view = view_with_plain_rows(&["abcdef"]);
+        let selection = DiffCharSelection {
+            anchor: DiffCharPosition {
+                row_index: 0,
+                char_index: 1,
+            },
+            focus: DiffCharPosition {
+                row_index: 0,
+                char_index: 4,
+            },
+        };
+
+        assert_eq!(view.char_selection_text(selection), "bcd");
+    }
+
+    #[test]
+    fn char_selection_text_normalizes_reverse_drag_order() {
+        let view = view_with_plain_rows(&["abcdef"]);
+        let selection = DiffCharSelection {
+            anchor: DiffCharPosition {
+                row_index: 0,
+                char_index: 5,
+            },
+            focus: DiffCharPosition {
+                row_index: 0,
+                char_index: 2,
+            },
+        };
+
+        assert_eq!(view.char_selection_text(selection), "cde");
+    }
+
+    #[test]
+    fn char_selection_text_copies_multiline_suffix_middle_and_prefix() {
+        let view = view_with_plain_rows(&["abcdef", "second", "uvwxyz"]);
+        let selection = DiffCharSelection {
+            anchor: DiffCharPosition {
+                row_index: 0,
+                char_index: 3,
+            },
+            focus: DiffCharPosition {
+                row_index: 2,
+                char_index: 2,
+            },
+        };
+
+        assert_eq!(view.char_selection_text(selection), "def\nsecond\nuv");
+    }
+
+    #[test]
+    fn char_selection_text_clamps_character_indices_and_handles_unicode() {
+        let view = view_with_plain_rows(&["a界b"]);
+        let selection = DiffCharSelection {
+            anchor: DiffCharPosition {
+                row_index: 0,
+                char_index: 1,
+            },
+            focus: DiffCharPosition {
+                row_index: 0,
+                char_index: 99,
+            },
+        };
+
+        assert_eq!(view.char_selection_text(selection), "界b");
     }
 }
