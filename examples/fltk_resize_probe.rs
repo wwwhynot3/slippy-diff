@@ -60,10 +60,10 @@ impl ProbeVisualMode {
     }
 
     fn apply(self) {
-        if self == Self::Rgb8 {
-            if let Err(err) = app::set_visual(Mode::Rgb8) {
-                eprintln!("SLIPPY_PROBE_VISUAL=rgb8 failed: {err}");
-            }
+        if self == Self::Rgb8
+            && let Err(err) = app::set_visual(Mode::Rgb8)
+        {
+            eprintln!("SLIPPY_PROBE_VISUAL=rgb8 failed: {err}");
         }
     }
 }

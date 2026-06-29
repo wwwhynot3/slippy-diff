@@ -265,8 +265,12 @@ mod tests {
         let outcome = state.apply_result(result);
 
         assert_eq!(outcome, ApplyOutcome::Applied);
-        assert!(render_unified_diff(state.left(), state.right(), state.options()).contains("-left\n"));
-        assert!(render_unified_diff(state.left(), state.right(), state.options()).contains("+right\n"));
+        assert!(
+            render_unified_diff(state.left(), state.right(), state.options()).contains("-left\n")
+        );
+        assert!(
+            render_unified_diff(state.left(), state.right(), state.options()).contains("+right\n")
+        );
         assert_eq!(state.status(), STATUS_DIFF_UPDATED);
         assert!(state.has_current_diff());
     }

@@ -20,10 +20,10 @@ use fltk::{
 use crate::{
     app_state::{AppState, STATUS_CLEARED},
     config::{
-        config_path, load_config_from_path, save_config_to_path, AppConfig, ConfigLoadStatus,
-        Theme, MAX_VERTICAL_SPLIT, MIN_HEIGHT, MIN_VERTICAL_SPLIT, MIN_WIDTH,
+        AppConfig, ConfigLoadStatus, MAX_VERTICAL_SPLIT, MIN_HEIGHT, MIN_VERTICAL_SPLIT, MIN_WIDTH,
+        Theme, config_path, load_config_from_path, save_config_to_path,
     },
-    diff_core::{render_unified_diff, DiffOptions},
+    diff_core::{DiffOptions, render_unified_diff},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -1383,11 +1383,7 @@ fn visible_input_line_numbers(top_line: i32, visible_rows: i32, text: &str) -> V
 }
 
 fn pin_button_label(pinned: bool) -> &'static str {
-    if pinned {
-        "Pinned"
-    } else {
-        "Pin"
-    }
+    if pinned { "Pinned" } else { "Pin" }
 }
 
 fn diff_canvas_height(row_count: usize) -> i32 {
@@ -1408,11 +1404,7 @@ enum DiffCopyStatus {
 }
 
 fn diff_text_x(frame_x: i32) -> i32 {
-    frame_x
-        + DIFF_OLD_GUTTER_WIDTH
-        + DIFF_NEW_GUTTER_WIDTH
-        + DIFF_MARKER_WIDTH
-        + DIFF_TEXT_LEFT_PAD
+    frame_x + DIFF_OLD_GUTTER_WIDTH + DIFF_NEW_GUTTER_WIDTH + DIFF_MARKER_WIDTH + DIFF_TEXT_LEFT_PAD
 }
 
 fn diff_row_at(event_y: i32, frame_y: i32, row_count: usize) -> Option<usize> {
@@ -2049,11 +2041,7 @@ fn root_margin(compact: bool) -> i32 {
 }
 
 fn root_pad(compact: bool) -> i32 {
-    if compact {
-        ROOT_PAD_COMPACT
-    } else {
-        ROOT_PAD
-    }
+    if compact { ROOT_PAD_COMPACT } else { ROOT_PAD }
 }
 
 fn available_input_height(window_height: i32) -> i32 {
@@ -2447,9 +2435,8 @@ mod tests {
     fn ui_handles_tracks_character_selection_separately_from_row_selection() {
         let source = include_str!("ui_fltk.rs");
         assert!(
-            source.contains(
-                "char_selection: Rc<Cell<Option<crate::diff_view::DiffCharSelection>>>"
-            ),
+            source
+                .contains("char_selection: Rc<Cell<Option<crate::diff_view::DiffCharSelection>>>"),
             "UiHandles should store character selection separately from row selection"
         );
     }
@@ -2755,7 +2742,7 @@ mod tests {
     #[test]
     fn overview_rail_label_places_change_markers() {
         use crate::{
-            diff_core::{build_display_diff, DiffOptions},
+            diff_core::{DiffOptions, build_display_diff},
             diff_view::build_diff_view,
         };
 
@@ -2774,7 +2761,7 @@ mod tests {
     #[test]
     fn overview_rail_label_keeps_blank_slots_without_marks() {
         use crate::{
-            diff_core::{build_display_diff, DiffOptions},
+            diff_core::{DiffOptions, build_display_diff},
             diff_view::build_diff_view,
         };
 

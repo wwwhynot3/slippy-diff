@@ -648,7 +648,9 @@ mod tests {
     fn change_regions_groups_contiguous_change_rows() {
         use DiffViewRowKind::*;
         // Context, Delete, Insert, Context, ReplaceOld, ReplaceNew, Context
-        let view = view_of(&[Context, Delete, Insert, Context, ReplaceOld, ReplaceNew, Context]);
+        let view = view_of(&[
+            Context, Delete, Insert, Context, ReplaceOld, ReplaceNew, Context,
+        ]);
         assert_eq!(view.change_regions(), vec![1..3, 4..6]);
     }
 
