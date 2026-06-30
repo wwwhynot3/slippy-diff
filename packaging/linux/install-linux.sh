@@ -24,7 +24,7 @@ trap 'rm -f "${tmp_desktop}"' EXIT
 sed "s|^Exec=.*$|Exec=${installed_binary}|" "${desktop_src}" > "${tmp_desktop}"
 install -m 644 "${tmp_desktop}" "${installed_desktop}"
 
-find "${icons_src_root}" -mindepth 3 -maxdepth 3 -type d -name apps | while read -r src_dir; do
+find "${icons_src_root}" -mindepth 2 -maxdepth 2 -type d -name apps | while read -r src_dir; do
   size_dir="$(basename "$(dirname "${src_dir}")")"
   target_dir="${icons_dir}/${size_dir}/apps"
   mkdir -p "${target_dir}"
