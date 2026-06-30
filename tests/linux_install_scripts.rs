@@ -15,7 +15,11 @@ fn linux_bundle_installer_installs_stable_uninstaller_command() {
 
 #[test]
 fn release_installer_downloads_latest_linux_bundle_by_default() {
+    assert!(INSTALL_RELEASE.contains("github.com/${repo}/releases/latest"));
+    assert!(INSTALL_RELEASE.contains("curl -fsSLI"));
+    assert!(INSTALL_RELEASE.contains("[Ll]ocation:"));
     assert!(INSTALL_RELEASE.contains("api.github.com/repos/${repo}/releases/latest"));
+    assert!(INSTALL_RELEASE.contains("Could not determine latest Slippy release tag."));
     assert!(INSTALL_RELEASE.contains("release_tag"));
     assert!(INSTALL_RELEASE.contains("slippy-${version}-linux-${arch}-${backend}-bundle.tar.gz"));
     assert!(INSTALL_RELEASE.contains("\"${bundle_root}/install-linux.sh\""));

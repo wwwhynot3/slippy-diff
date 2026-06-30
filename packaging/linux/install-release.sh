@@ -36,6 +36,30 @@ detect_backend() {
   echo "x11"
 }
 
+resolve_latest_release_tag() {
+  local redirect_headers=""
+  local redirected_url=""
+  local tag=""
+  local release_json=""
+
+  redirect_headers="$(curl -fsSLI "https://github.com/${repo}/releases/latest" 2>/dev/null || true)"
+  redirected_url="$(printf '%s' "${redirect_headers}" | sed -n 's/^[Ll]ocation: *\(.*\)\r$/\1/p' | tail -n 1)"
+  tag="$(printf '%s' "${redirected_url}" | sed -n 's|.*/tag/\(slippy-v[^/?#[:space:]]*\).*|\1|p' | tail -n 1)"
+  if [[ -n "${tag}" ]]; then
+    echo "${tag}"
+    return
+  fi
+
+  release_json="$(curl -fsSL "https://api.github.com/repos/${repo}/releases/latest" 2>/dev/null || true)"
+  tag="$(printf '%s' "${release_json}" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1)"
+  if [[ -n "${tag}" ]]; then
+    echo "${tag}"
+    return
+  fi
+
+  return 1
+}
+
 arch="${SLIPPY_ARCH:-}"
 backend="${SLIPPY_BACKEND:-}"
 
@@ -71,10 +95,9 @@ trap 'rm -rf "${work_dir}"' EXIT
 if [[ -n "${release_tag}" ]]; then
   version="${release_tag#slippy-}"
 elif [[ "${version}" == "latest" ]]; then
-  release_json="$(curl -fsSL "https://api.github.com/repos/${repo}/releases/latest")"
-  release_tag="$(printf '%s' "${release_json}" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1)"
+  release_tag="$(resolve_latest_release_tag || true)"
   if [[ -z "${release_tag}" ]]; then
-    echo "Could not determine latest Slippy release tag." >&2
+    echo "Could not determine latest Slippy release tag. Set SLIPPY_VERSION=v... or SLIPPY_RELEASE_TAG=slippy-v... and retry." >&2
     exit 1
   fi
   version="${release_tag#slippy-}"
