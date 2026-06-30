@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.0](https://github.com/wwwhynot3/slippy-diff/compare/slippy-v0.2.3...slippy-v0.3.0) (2026-06-30)
+
+
+### Features
+
+* add desktop packaging installers ([9a446e3](https://github.com/wwwhynot3/slippy-diff/commit/9a446e3b1e39b19c85d29b983de893d278bb354b))
+
+
+### Bug Fixes
+
+* avoid api-only latest release lookup ([71ff0ba](https://github.com/wwwhynot3/slippy-diff/commit/71ff0ba4a32604cfe45383881e20ed1d3f7ff311))
+* use release tags in linux installer ([1a32ad6](https://github.com/wwwhynot3/slippy-diff/commit/1a32ad6f988a95c9af4b29107f1ad2123d86c93f))
+
 ## [0.2.3](https://github.com/wwwhynot3/slippy-diff/compare/slippy-v0.2.2...slippy-v0.2.3) (2026-06-29)
 
 
