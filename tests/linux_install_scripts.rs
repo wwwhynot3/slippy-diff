@@ -16,8 +16,14 @@ fn linux_bundle_installer_installs_stable_uninstaller_command() {
 #[test]
 fn release_installer_downloads_latest_linux_bundle_by_default() {
     assert!(INSTALL_RELEASE.contains("api.github.com/repos/${repo}/releases/latest"));
+    assert!(INSTALL_RELEASE.contains("release_tag"));
     assert!(INSTALL_RELEASE.contains("slippy-${version}-linux-${arch}-${backend}-bundle.tar.gz"));
     assert!(INSTALL_RELEASE.contains("\"${bundle_root}/install-linux.sh\""));
+    assert!(
+        INSTALL_RELEASE
+            .contains("https://github.com/${repo}/releases/download/${release_tag}/${asset}")
+    );
+    assert!(INSTALL_RELEASE.contains("version=\"${release_tag#slippy-}\""));
     assert!(INSTALL_RELEASE.contains("SLIPPY_ARCH"));
     assert!(INSTALL_RELEASE.contains("SLIPPY_BACKEND"));
     assert!(INSTALL_RELEASE.contains("uname -m"));
@@ -27,6 +33,7 @@ fn release_installer_downloads_latest_linux_bundle_by_default() {
     assert!(INSTALL_RELEASE.contains("echo \"amd64\""));
     assert!(INSTALL_RELEASE.contains("echo \"x11\""));
     assert!(INSTALL_RELEASE.contains("Resolved version: ${version}"));
+    assert!(INSTALL_RELEASE.contains("Resolved release tag: ${release_tag}"));
     assert!(INSTALL_RELEASE.contains("Resolved arch: ${arch}"));
     assert!(INSTALL_RELEASE.contains("Resolved backend: ${backend}"));
     assert!(INSTALL_RELEASE.contains("Downloading asset: ${asset}"));

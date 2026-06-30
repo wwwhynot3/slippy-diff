@@ -187,7 +187,7 @@ One-command desktop-integrated install:
 curl -fsSL https://raw.githubusercontent.com/wwwhynot3/slippy-diff/master/packaging/linux/install-release.sh | bash
 ```
 
-The installer auto-detects `arch` and `backend` when possible, then falls back to `amd64` and `x11`. Environment variable overrides take precedence.
+The installer auto-detects `arch` and `backend` when possible, then falls back to `amd64` and `x11`. Environment variable overrides take precedence. If you want to pin an exact GitHub release tag, you can set `SLIPPY_RELEASE_TAG=slippy-v...`.
 
 Optional environment overrides before running the installer:
 

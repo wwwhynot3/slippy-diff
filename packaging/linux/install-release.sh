@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo="wwwhynot3/slippy-diff"
 version="${SLIPPY_VERSION:-latest}"
+release_tag="${SLIPPY_RELEASE_TAG:-}"
 
 detect_arch() {
   if command -v uname >/dev/null 2>&1; then
@@ -67,18 +68,24 @@ esac
 work_dir="$(mktemp -d)"
 trap 'rm -rf "${work_dir}"' EXIT
 
-if [[ "${version}" == "latest" ]]; then
+if [[ -n "${release_tag}" ]]; then
+  version="${release_tag#slippy-}"
+elif [[ "${version}" == "latest" ]]; then
   release_json="$(curl -fsSL "https://api.github.com/repos/${repo}/releases/latest")"
-  version="$(printf '%s' "${release_json}" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1)"
-  if [[ -z "${version}" ]]; then
+  release_tag="$(printf '%s' "${release_json}" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1)"
+  if [[ -z "${release_tag}" ]]; then
     echo "Could not determine latest Slippy release tag." >&2
     exit 1
   fi
+  version="${release_tag#slippy-}"
+else
+  release_tag="slippy-${version}"
 fi
 
 asset="slippy-${version}-linux-${arch}-${backend}-bundle.tar.gz"
-url="https://github.com/${repo}/releases/download/${version}/${asset}"
+url="https://github.com/${repo}/releases/download/${release_tag}/${asset}"
 
+echo "Resolved release tag: ${release_tag}"
 echo "Resolved version: ${version}"
 echo "Resolved arch: ${arch}"
 echo "Resolved backend: ${backend}"
