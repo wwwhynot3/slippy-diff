@@ -1,4 +1,6 @@
 const RELEASE_WORKFLOW: &str = include_str!("../.github/workflows/release-please.yml");
+const CARGO_TOML: &str = include_str!("../Cargo.toml");
+const BUILD_RS: &str = include_str!("../build.rs");
 
 fn job_section<'a>(workflow: &'a str, start: &str, end: &str) -> &'a str {
     let start_index = workflow
@@ -38,12 +40,47 @@ fn linux_appimage_release_matrix_builds_x11_and_wayland_assets() {
     assert!(job.contains("wayland-protocols"));
 
     assert!(job.contains("cargo build --release --locked ${{ matrix.cargo_features }}"));
+    assert!(job.contains("cp packaging/linux/dev.wwwhynot3.slippy.desktop"));
+    assert!(job.contains("cp packaging/linux/icons/hicolor/256x256/apps/dev.wwwhynot3.slippy.png"));
+    assert!(!job.contains("cat > AppDir/usr/share/applications/slippy.desktop <<'DESKTOP'"));
     assert!(job.contains(
         "slippy-v${RELEASE_VERSION}-linux-${{ matrix.asset_arch }}-${{ matrix.backend }}.appimage"
     ));
     assert!(
         !job.contains("slippy-v${RELEASE_VERSION}-linux-${{ matrix.asset_arch }}-x11.AppImage")
     );
+}
+
+#[test]
+fn linux_binary_release_matrix_keeps_raw_binary_and_uploads_bundle_tarballs() {
+    let job = job_section(RELEASE_WORKFLOW, "  linux-binaries:", "  linux-appimages:");
+
+    assert!(job.contains("name: Linux ${{ matrix.asset_arch }} ${{ matrix.backend }} binary"));
+    assert!(job.contains(
+        "dist/slippy-v${RELEASE_VERSION}-linux-${{ matrix.asset_arch }}-${{ matrix.backend }}"
+    ));
+    assert!(job.contains(
+        "slippy-v${RELEASE_VERSION}-linux-${{ matrix.asset_arch }}-${{ matrix.backend }}-bundle.tar.gz"
+    ));
+    assert!(job.contains("tar -czf"));
+    assert!(job.contains("packaging/linux/install-linux.sh"));
+    assert!(job.contains("packaging/linux/uninstall-linux.sh"));
+    assert!(job.contains("packaging/linux/dev.wwwhynot3.slippy.desktop"));
+}
+
+#[test]
+fn windows_release_embeds_icon_before_uploading_executable() {
+    let job = job_section(
+        RELEASE_WORKFLOW,
+        "  windows-binaries:",
+        "  macos-universal-dmg:",
+    );
+
+    assert!(job.contains("name: Windows ${{ matrix.asset_arch }} binary"));
+    assert!(job.contains("cargo build --release --locked --target ${{ matrix.target }}"));
+    assert!(CARGO_TOML.contains("winresource"));
+    assert!(BUILD_RS.contains("assets/icons/slippy.ico"));
+    assert!(BUILD_RS.contains("WindowsResource"));
 }
 
 #[test]

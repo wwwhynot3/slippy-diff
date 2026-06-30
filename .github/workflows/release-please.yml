@@ -99,6 +99,27 @@ jobs:
           install -m 755 target/release/slippy "$asset"
           gh release upload "$RELEASE_TAG" "$asset" --clobber
 
+      - name: Build Linux desktop bundle
+        run: |
+          bundle_root="dist/slippy-v${RELEASE_VERSION}-linux-${{ matrix.asset_arch }}-${{ matrix.backend }}-bundle"
+          rm -rf "$bundle_root"
+          mkdir -p "$bundle_root/share/applications"
+          cp target/release/slippy "$bundle_root/slippy"
+          chmod 755 "$bundle_root/slippy"
+          cp packaging/linux/install-linux.sh "$bundle_root/install-linux.sh"
+          cp packaging/linux/install-release.sh "$bundle_root/install-release.sh"
+          cp packaging/linux/uninstall-linux.sh "$bundle_root/uninstall-linux.sh"
+          chmod 755 "$bundle_root/install-linux.sh" "$bundle_root/install-release.sh" "$bundle_root/uninstall-linux.sh"
+          cp packaging/linux/README.md "$bundle_root/README.md"
+          cp packaging/linux/dev.wwwhynot3.slippy.desktop "$bundle_root/share/applications/dev.wwwhynot3.slippy.desktop"
+          cp -R packaging/linux/icons "$bundle_root/share/"
+          tarball="dist/slippy-v${RELEASE_VERSION}-linux-${{ matrix.asset_arch }}-${{ matrix.backend }}-bundle.tar.gz"
+          tar -czf "$tarball" -C dist "$(basename "$bundle_root")"
+
+      - name: Upload Linux desktop bundle
+        run: |
+          gh release upload "$RELEASE_TAG" "dist/slippy-v${RELEASE_VERSION}-linux-${{ matrix.asset_arch }}-${{ matrix.backend }}-bundle.tar.gz" --clobber
+
   linux-appimages:
     name: Linux ${{ matrix.asset_arch }} ${{ matrix.backend }} AppImage
     needs: release-please
@@ -176,17 +197,10 @@ jobs:
         run: |
           mkdir -p AppDir/usr/bin AppDir/usr/share/applications AppDir/usr/share/icons/hicolor/256x256/apps
           cp target/release/slippy AppDir/usr/bin/slippy
-          cat > AppDir/usr/share/applications/slippy.desktop <<'DESKTOP'
-          [Desktop Entry]
-          Type=Application
-          Name=Slippy
-          Comment=Native desktop text diff tool
-          Exec=slippy
-          Icon=slippy
-          Categories=Utility;TextTools;
-          Terminal=false
-          DESKTOP
-          cp assets/icons/png/slippy-256.png AppDir/usr/share/icons/hicolor/256x256/apps/slippy.png
+          cp packaging/linux/dev.wwwhynot3.slippy.desktop AppDir/usr/share/applications/slippy.desktop
+          sed -i 's|^Exec=.*$|Exec=slippy|' AppDir/usr/share/applications/slippy.desktop
+          sed -i 's|^Icon=.*$|Icon=slippy|' AppDir/usr/share/applications/slippy.desktop
+          cp packaging/linux/icons/hicolor/256x256/apps/dev.wwwhynot3.slippy.png AppDir/usr/share/icons/hicolor/256x256/apps/slippy.png
           cp AppDir/usr/share/applications/slippy.desktop AppDir/slippy.desktop
           cp AppDir/usr/share/icons/hicolor/256x256/apps/slippy.png AppDir/slippy.png
 

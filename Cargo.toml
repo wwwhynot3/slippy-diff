@@ -15,6 +15,9 @@ thiserror = "2"
 [dev-dependencies]
 tempfile = "3"
 
+[build-dependencies]
+winresource = "0.1"
+
 [features]
 default = []
 wayland = ["fltk/use-wayland"]

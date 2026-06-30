@@ -166,11 +166,41 @@ Prebuilt artifacts are published on the GitHub releases page:
 Current release automation builds these asset types:
 
 - Linux binaries for `amd64` and `arm64`
+- Linux desktop-integration bundles for `x11` and `wayland`
 - Linux AppImages for `x11` and `wayland`
 - Windows binaries for `amd64` and `arm64`
 - macOS binaries and DMG packages
 
 If you do not see an asset for your platform yet, use the source build path below.
+
+### Linux release paths
+
+- Raw binary: download the matching `slippy-v<version>-linux-<arch>-<backend>` asset and run it directly.
+- Desktop-integrated bundle: download the matching `slippy-v<version>-linux-<arch>-<backend>-bundle.tar.gz` asset to install a launcher entry, icons, and the binary into `~/.local`.
+- AppImage: download the matching `.appimage` asset if you want a self-contained desktop app package.
+
+The raw binary alone does not create an application menu entry or launcher icon.
+
+One-command desktop-integrated install:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/wwwhynot3/slippy-diff/master/packaging/linux/install-release.sh | bash
+```
+
+The installer auto-detects `arch` and `backend` when possible, then falls back to `amd64` and `x11`. Environment variable overrides take precedence.
+
+Optional environment overrides before running the installer:
+
+```bash
+SLIPPY_VERSION=v0.2.3 SLIPPY_ARCH=amd64 SLIPPY_BACKEND=x11 \
+  bash -c "$(curl -fsSL https://raw.githubusercontent.com/wwwhynot3/slippy-diff/master/packaging/linux/install-release.sh)"
+```
+
+Uninstall the user-scoped Linux desktop integration with:
+
+```bash
+~/.local/bin/slippy-uninstall
+```
 
 ### Run from source
 

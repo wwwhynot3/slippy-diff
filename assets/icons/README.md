@@ -1,6 +1,6 @@
 # Slippy Icons
 
-`slippy.svg` is the editable source icon. PNG files in `png/` are generated from that SVG for launchers, packages, and stores that require raster icon sizes.
+`slippy.svg` is the editable source icon. PNG files in `png/` are generated from that SVG for launchers, packages, and stores that require raster icon sizes. `slippy.ico` is the Windows packaging derivative used for embedding the app icon into release `.exe` files.
 
 Regenerate the PNG exports with:
 
