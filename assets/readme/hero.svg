@@ -1,0 +1,220 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="980" viewBox="0 0 1600 980" role="img" aria-labelledby="title desc">
+  <title id="title">Slippy README hero mockup</title>
+  <desc id="desc">A polished hero graphic for the Slippy README with product messaging on the left and a native desktop diff window on the right.</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#F8F5EE"/>
+      <stop offset="100%" stop-color="#EEE7DA"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#F8EFE1" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#E8DCC3" stop-opacity="0.85"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#FFFDF9"/>
+      <stop offset="100%" stop-color="#F6F1E7"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" x2="1" y1="0" y2="0">
+      <stop offset="0%" stop-color="#2F6F73"/>
+      <stop offset="100%" stop-color="#6AA8AD"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="160%" height="180%">
+      <feDropShadow dx="0" dy="22" stdDeviation="26" flood-color="#8C826E" flood-opacity="0.18"/>
+    </filter>
+    <filter id="softShadow" x="-20%" y="-20%" width="160%" height="180%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#8C826E" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+
+  <rect width="1600" height="980" fill="url(#bg)"/>
+  <circle cx="1425" cy="145" r="170" fill="#E9E0CB" opacity="0.72"/>
+  <circle cx="118" cy="804" r="164" fill="#E6DECD" opacity="0.82"/>
+  <path d="M320 48C525 4 830 16 1068 146C1228 233 1321 408 1298 574C1270 776 1045 901 724 918C436 933 185 852 102 699C17 542 84 309 255 171C286 146 312 128 320 48Z" fill="url(#glow)" opacity="0.38"/>
+
+  <g transform="translate(86 72)">
+    <rect x="0" y="0" width="68" height="68" rx="20" fill="#FFFDF9" stroke="#D9D1C3" stroke-width="3" filter="url(#softShadow)"/>
+    <line x1="34" y1="16" x2="34" y2="52" stroke="#D9D1C3" stroke-width="4.5" stroke-linecap="round"/>
+    <path d="M14 28H38C47 28 54 33 54 40C54 48 47 54 38 54H14" fill="none" stroke="#2F6F73" stroke-width="7.5" stroke-linecap="round"/>
+    <path d="M26 22L14 28L26 34" fill="none" stroke="#2F6F73" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M39 48L54 54L39 60" fill="none" stroke="#2F6F73" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="18" y="37" width="12" height="4" rx="2" fill="#9A3A25"/>
+    <rect x="38" y="37" width="12" height="4" rx="2" fill="#1F6B3A"/>
+  </g>
+
+  <g transform="translate(180 82)">
+    <text x="0" y="0" fill="#25231F" font-size="52" font-family="Segoe UI, Inter, Arial, sans-serif" font-weight="780">Slippy</text>
+    <text x="0" y="42" fill="#6F685F" font-size="24" font-family="Segoe UI, Inter, Arial, sans-serif">Native desktop diffing for pasted text</text>
+  </g>
+
+  <g transform="translate(84 214)">
+    <text x="0" y="0" fill="#25231F" font-size="72" font-family="Segoe UI, Inter, Arial, sans-serif" font-weight="780">Paste-first diffing</text>
+    <text x="0" y="84" fill="#25231F" font-size="72" font-family="Segoe UI, Inter, Arial, sans-serif" font-weight="780">without IDE overhead</text>
+
+    <text x="0" y="170" fill="#6F685F" font-size="24" font-family="Segoe UI, Inter, Arial, sans-serif">Compare snippets, logs, prompts, config fragments, and generated text in</text>
+    <text x="0" y="206" fill="#6F685F" font-size="24" font-family="Segoe UI, Inter, Arial, sans-serif">a quiet native window. No repo tree, clipboard watcher, or tray app.</text>
+    <text x="0" y="242" fill="#6F685F" font-size="24" font-family="Segoe UI, Inter, Arial, sans-serif">Just two panes, one reliable diff, and a fast copy-review-close workflow.</text>
+  </g>
+
+  <g transform="translate(84 528)">
+    <rect x="0" y="0" width="274" height="66" rx="20" fill="url(#accent)" filter="url(#softShadow)"/>
+    <text x="137" y="42" text-anchor="middle" fill="#FFFFFF" font-size="26" font-family="Segoe UI, Inter, Arial, sans-serif" font-weight="700">cargo run</text>
+
+    <rect x="296" y="0" width="360" height="66" rx="20" fill="#FFFDF9" stroke="#D8D0C2" stroke-width="2" filter="url(#softShadow)"/>
+    <text x="476" y="42" text-anchor="middle" fill="#443E30" font-size="26" font-family="Segoe UI, Inter, Arial, sans-serif" font-weight="600">Copy • Compare • Close</text>
+  </g>
+
+  <g transform="translate(880 110)" filter="url(#shadow)">
+    <rect x="0" y="0" width="660" height="736" rx="30" fill="url(#panel)" stroke="#D8D0C2" stroke-width="2"/>
+    <rect x="0" y="0" width="660" height="48" rx="30" fill="#F0ECE3"/>
+    <circle cx="30" cy="24" r="6.5" fill="#D98A73"/>
+    <circle cx="54" cy="24" r="6.5" fill="#E2B75E"/>
+    <circle cx="78" cy="24" r="6.5" fill="#8DB783"/>
+    <text x="330" y="31" text-anchor="middle" fill="#6F685F" font-size="18" font-family="Segoe UI, Inter, Arial, sans-serif" font-weight="700">Slippy</text>
+
+    <rect x="20" y="64" width="300" height="180" rx="18" fill="#FFFDF9" stroke="#D8D0C2"/>
+    <rect x="340" y="64" width="300" height="180" rx="18" fill="#FFFDF9" stroke="#D8D0C2"/>
+    <rect x="20" y="64" width="42" height="180" rx="18" fill="#F5F1E8"/>
+    <rect x="340" y="64" width="42" height="180" rx="18" fill="#F5F1E8"/>
+    <line x1="62" y1="64" x2="62" y2="244" stroke="#D8D0C2"/>
+    <line x1="382" y1="64" x2="382" y2="244" stroke="#D8D0C2"/>
+
+    <g fill="#A59D8F" font-size="14" font-family="JetBrains Mono, Menlo, Consolas, monospace">
+      <text x="41" y="94" text-anchor="middle">1</text>
+      <text x="41" y="120" text-anchor="middle">2</text>
+      <text x="41" y="146" text-anchor="middle">3</text>
+      <text x="41" y="172" text-anchor="middle">4</text>
+      <text x="41" y="198" text-anchor="middle">5</text>
+      <text x="361" y="94" text-anchor="middle">1</text>
+      <text x="361" y="120" text-anchor="middle">2</text>
+      <text x="361" y="146" text-anchor="middle">3</text>
+      <text x="361" y="172" text-anchor="middle">4</text>
+      <text x="361" y="198" text-anchor="middle">5</text>
+    </g>
+
+    <g fill="#25231F" font-size="15" font-family="JetBrains Mono, Menlo, Consolas, monospace">
+      <text x="78" y="94">let mode = "old";</text>
+      <text x="78" y="120">println!("ready");</text>
+      <text x="78" y="146">let stale = true;</text>
+      <text x="78" y="172">sync_diff(left, right);</text>
+      <text x="78" y="198">copy_to_clipboard();</text>
+
+      <text x="398" y="94">let mode = "new";</text>
+      <text x="398" y="120">println!("ready");</text>
+      <text x="398" y="146">println!("done");</text>
+      <text x="398" y="172">sync_diff(left, right);</text>
+      <text x="398" y="198">copy_to_clipboard();</text>
+    </g>
+
+    <g transform="translate(20 266)">
+      <rect x="0" y="0" width="94" height="36" rx="11" fill="#FFFDF9" stroke="#D8D0C2"/>
+      <rect x="106" y="0" width="100" height="36" rx="11" fill="#FFFDF9" stroke="#D8D0C2"/>
+      <rect x="218" y="0" width="94" height="36" rx="11" fill="url(#accent)"/>
+      <rect x="324" y="0" width="78" height="36" rx="11" fill="#FFFDF9" stroke="#D8D0C2"/>
+      <rect x="414" y="0" width="78" height="36" rx="11" fill="#FFFDF9" stroke="#D8D0C2"/>
+      <rect x="504" y="0" width="116" height="36" rx="11" fill="#FFFDF9" stroke="#D8D0C2"/>
+
+      <g font-size="14" font-family="Segoe UI, Inter, Arial, sans-serif" font-weight="600">
+        <text x="47" y="23" text-anchor="middle" fill="#443E30">Paste Left</text>
+        <text x="156" y="23" text-anchor="middle" fill="#443E30">Paste Right</text>
+        <text x="265" y="23" text-anchor="middle" fill="#FFFFFF">Compare</text>
+        <text x="363" y="23" text-anchor="middle" fill="#443E30">Swap</text>
+        <text x="453" y="23" text-anchor="middle" fill="#443E30">Clear</text>
+        <text x="562" y="23" text-anchor="middle" fill="#443E30">Copy Diff</text>
+      </g>
+    </g>
+
+    <g transform="translate(20 324)">
+      <rect x="0" y="0" width="620" height="42" rx="13" fill="#F0ECE3" stroke="#D8D0C2"/>
+      <text x="18" y="27" fill="#443E30" font-size="14" font-family="Segoe UI, Inter, Arial, sans-serif" font-weight="700">Unified Review</text>
+      <text x="178" y="27" fill="#6F685F" font-size="13" font-family="Segoe UI, Inter, Arial, sans-serif">Prev</text>
+      <text x="222" y="27" fill="#6F685F" font-size="13" font-family="Segoe UI, Inter, Arial, sans-serif">Next</text>
+      <text x="268" y="27" fill="#6F685F" font-size="13" font-family="Segoe UI, Inter, Arial, sans-serif">Pin</text>
+      <text x="304" y="27" fill="#6F685F" font-size="13" font-family="Segoe UI, Inter, Arial, sans-serif">Theme</text>
+      <text x="602" y="27" text-anchor="end" fill="#2F6F73" font-size="13" font-family="Segoe UI, Inter, Arial, sans-serif" font-weight="700">1 changed block</text>
+    </g>
+
+    <g transform="translate(20 382)">
+      <rect x="0" y="0" width="620" height="316" rx="18" fill="#FFFDF9" stroke="#D8D0C2"/>
+      <rect x="0" y="0" width="620" height="34" rx="18" fill="#F5F1E8"/>
+      <text x="20" y="22" fill="#6F685F" font-size="13" font-family="Segoe UI, Inter, Arial, sans-serif" font-weight="700">LEFT</text>
+      <text x="92" y="22" fill="#6F685F" font-size="13" font-family="Segoe UI, Inter, Arial, sans-serif" font-weight="700">RIGHT</text>
+      <text x="164" y="22" fill="#6F685F" font-size="13" font-family="Segoe UI, Inter, Arial, sans-serif" font-weight="700">K</text>
+      <text x="198" y="22" fill="#6F685F" font-size="13" font-family="Segoe UI, Inter, Arial, sans-serif" font-weight="700">Text</text>
+
+      <rect x="0" y="34" width="620" height="42" fill="#F5F1E0"/>
+      <rect x="0" y="76" width="620" height="42" fill="#F5F1E0"/>
+      <rect x="0" y="118" width="620" height="42" fill="#E7F4EA"/>
+
+      <text x="28" y="61" fill="#443E30" font-size="13" font-family="JetBrains Mono, Menlo, Consolas, monospace">1</text>
+      <text x="100" y="61" fill="#443E30" font-size="13" font-family="JetBrains Mono, Menlo, Consolas, monospace"></text>
+      <text x="160" y="61" fill="#443E30" font-size="13" font-family="JetBrains Mono, Menlo, Consolas, monospace">~</text>
+      <text x="196" y="61" fill="#25231F" font-size="14" font-family="JetBrains Mono, Menlo, Consolas, monospace">let mode = "</text>
+      <rect x="294" y="46" width="30" height="20" rx="6" fill="#EEC8BC"/>
+      <text x="300" y="61" fill="#9A3A25" font-size="14" font-family="JetBrains Mono, Menlo, Consolas, monospace">old</text>
+      <text x="328" y="61" fill="#25231F" font-size="14" font-family="JetBrains Mono, Menlo, Consolas, monospace">";</text>
+
+      <text x="28" y="103" fill="#443E30" font-size="13" font-family="JetBrains Mono, Menlo, Consolas, monospace"></text>
+      <text x="100" y="103" fill="#443E30" font-size="13" font-family="JetBrains Mono, Menlo, Consolas, monospace">1</text>
+      <text x="160" y="103" fill="#443E30" font-size="13" font-family="JetBrains Mono, Menlo, Consolas, monospace">~</text>
+      <text x="196" y="103" fill="#25231F" font-size="14" font-family="JetBrains Mono, Menlo, Consolas, monospace">let mode = "</text>
+      <rect x="294" y="88" width="32" height="20" rx="6" fill="#C6E7D0"/>
+      <text x="300" y="103" fill="#1F6B3A" font-size="14" font-family="JetBrains Mono, Menlo, Consolas, monospace">new</text>
+      <text x="330" y="103" fill="#25231F" font-size="14" font-family="JetBrains Mono, Menlo, Consolas, monospace">";</text>
+
+      <text x="28" y="145" fill="#1F6B3A" font-size="13" font-family="JetBrains Mono, Menlo, Consolas, monospace"></text>
+      <text x="100" y="145" fill="#1F6B3A" font-size="13" font-family="JetBrains Mono, Menlo, Consolas, monospace">3</text>
+      <text x="160" y="145" fill="#1F6B3A" font-size="13" font-family="JetBrains Mono, Menlo, Consolas, monospace">+</text>
+      <text x="196" y="145" fill="#25231F" font-size="14" font-family="JetBrains Mono, Menlo, Consolas, monospace">println!("done");</text>
+
+      <text x="28" y="191" fill="#6F685F" font-size="13" font-family="JetBrains Mono, Menlo, Consolas, monospace">4</text>
+      <text x="100" y="191" fill="#6F685F" font-size="13" font-family="JetBrains Mono, Menlo, Consolas, monospace">4</text>
+      <text x="160" y="191" fill="#6F685F" font-size="13" font-family="JetBrains Mono, Menlo, Consolas, monospace"></text>
+      <text x="196" y="191" fill="#25231F" font-size="14" font-family="JetBrains Mono, Menlo, Consolas, monospace">sync_diff(left, right);</text>
+
+      <text x="28" y="233" fill="#6F685F" font-size="13" font-family="JetBrains Mono, Menlo, Consolas, monospace">5</text>
+      <text x="100" y="233" fill="#6F685F" font-size="13" font-family="JetBrains Mono, Menlo, Consolas, monospace">5</text>
+      <text x="160" y="233" fill="#6F685F" font-size="13" font-family="JetBrains Mono, Menlo, Consolas, monospace"></text>
+      <text x="196" y="233" fill="#25231F" font-size="14" font-family="JetBrains Mono, Menlo, Consolas, monospace">copy_to_clipboard();</text>
+
+      <rect x="592" y="42" width="8" height="92" rx="4" fill="#6AA8AD"/>
+      <rect x="592" y="138" width="8" height="130" rx="4" fill="#D8D0C2"/>
+    </g>
+
+    <g transform="translate(20 708)">
+      <rect x="0" y="0" width="620" height="22" rx="8" fill="#EFEAE0"/>
+      <text x="12" y="15" fill="#6F685F" font-size="12" font-family="Segoe UI, Inter, Arial, sans-serif">Diff updated.</text>
+      <text x="608" y="15" text-anchor="end" fill="#6F685F" font-size="12" font-family="Segoe UI, Inter, Arial, sans-serif">Theme: System</text>
+    </g>
+  </g>
+
+  <g transform="translate(84 728)">
+    <rect x="0" y="0" width="740" height="126" rx="28" fill="#FFFDF9" stroke="#D8D0C2" stroke-width="2" filter="url(#softShadow)"/>
+
+    <g transform="translate(28 24)">
+      <text x="0" y="0" fill="#25231F" font-size="22" font-family="Segoe UI, Inter, Arial, sans-serif" font-weight="700">Paste-first</text>
+      <text x="0" y="34" fill="#6F685F" font-size="15" font-family="Segoe UI, Inter, Arial, sans-serif">Dedicated left/right paste actions</text>
+      <text x="0" y="56" fill="#6F685F" font-size="15" font-family="Segoe UI, Inter, Arial, sans-serif">keep the workflow fast.</text>
+    </g>
+
+    <line x1="240" y1="24" x2="240" y2="100" stroke="#E6DED0" stroke-width="2"/>
+
+    <g transform="translate(268 24)">
+      <text x="0" y="0" fill="#25231F" font-size="22" font-family="Segoe UI, Inter, Arial, sans-serif" font-weight="700">Readable diffs</text>
+      <text x="0" y="34" fill="#6F685F" font-size="15" font-family="Segoe UI, Inter, Arial, sans-serif">Semantic gutters, inline tokens,</text>
+      <text x="0" y="56" fill="#6F685F" font-size="15" font-family="Segoe UI, Inter, Arial, sans-serif">folding, and change navigation.</text>
+    </g>
+
+    <line x1="522" y1="24" x2="522" y2="100" stroke="#E6DED0" stroke-width="2"/>
+
+    <g transform="translate(550 24)">
+      <text x="0" y="0" fill="#25231F" font-size="22" font-family="Segoe UI, Inter, Arial, sans-serif" font-weight="700">Private</text>
+      <text x="0" y="34" fill="#6F685F" font-size="15" font-family="Segoe UI, Inter, Arial, sans-serif">Text and diffs are never</text>
+      <text x="0" y="56" fill="#6F685F" font-size="15" font-family="Segoe UI, Inter, Arial, sans-serif">persisted to disk.</text>
+    </g>
+  </g>
+
+  <g transform="translate(84 898)">
+    <text x="0" y="0" fill="#A59D8F" font-size="17" font-family="Segoe UI, Inter, Arial, sans-serif">Built with Rust • FLTK • native desktop workflow • local-first behavior</text>
+  </g>
+</svg>
