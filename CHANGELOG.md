@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/wwwhynot3/slippy-diff/compare/slippy-v0.3.0...slippy-v0.3.1) (2026-06-30)
+
+
+### Bug Fixes
+
+* install linux desktop icons ([ae3da2c](https://github.com/wwwhynot3/slippy-diff/commit/ae3da2c4d06c4ea46f04fcb3fc3c09b0d9542b7b))
+
 ## [0.3.0](https://github.com/wwwhynot3/slippy-diff/compare/slippy-v0.2.3...slippy-v0.3.0) (2026-06-30)
 
 
