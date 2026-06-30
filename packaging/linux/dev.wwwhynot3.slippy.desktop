@@ -4,6 +4,7 @@ Name=Slippy
 Comment=Compare two pasted text snippets
 Exec=slippy
 Icon=dev.wwwhynot3.slippy
+StartupWMClass=dev.wwwhynot3.slippy
 Terminal=false
 Categories=Development;Utility;
 StartupNotify=true

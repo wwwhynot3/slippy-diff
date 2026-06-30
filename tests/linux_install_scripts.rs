@@ -2,6 +2,8 @@ const INSTALL_LINUX: &str = include_str!("../packaging/linux/install-linux.sh");
 const UNINSTALL_LINUX: &str = include_str!("../packaging/linux/uninstall-linux.sh");
 const INSTALL_RELEASE: &str = include_str!("../packaging/linux/install-release.sh");
 const README: &str = include_str!("../README.md");
+const UI_FLTK: &str = include_str!("../src/ui_fltk.rs");
+const DESKTOP_ENTRY: &str = include_str!("../packaging/linux/dev.wwwhynot3.slippy.desktop");
 
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
@@ -14,8 +16,23 @@ fn linux_bundle_installer_installs_stable_uninstaller_command() {
     assert!(INSTALL_LINUX.contains(
         "install -m 755 \"${bundle_dir}/uninstall-linux.sh\" \"${installed_uninstaller}\""
     ));
+    assert!(INSTALL_LINUX.contains("sed -e \"s|^Exec=.*$|Exec=${installed_binary}|\""));
+    assert!(INSTALL_LINUX.contains(
+        "Some desktop environments may not show the launcher icon in search until you log out and back in."
+    ));
     assert!(INSTALL_LINUX.contains("Run ${installed_uninstaller}"));
     assert!(UNINSTALL_LINUX.contains("rm -f \"${HOME}/.local/bin/slippy-uninstall\""));
+}
+
+#[test]
+fn linux_desktop_entry_declares_startup_wm_class() {
+    assert!(DESKTOP_ENTRY.contains("StartupWMClass=dev.wwwhynot3.slippy"));
+}
+
+#[test]
+fn fltk_window_sets_matching_xclass_for_desktop_integration() {
+    assert!(UI_FLTK.contains("const LINUX_DESKTOP_ID: &str = \"dev.wwwhynot3.slippy\";"));
+    assert!(UI_FLTK.contains("window.set_xclass(LINUX_DESKTOP_ID);"));
 }
 
 #[test]
@@ -59,10 +76,12 @@ fn install_linux_script_installs_desktop_file_and_icons_into_user_scope() {
     let temp = tempfile::tempdir().expect("tempdir");
     let home_dir = temp.path().join("home");
     let bundle_dir = temp.path().join("bundle");
-    let icon_src_dir = bundle_dir.join("share/icons/hicolor/256x256/apps");
+    let icon_256_src_dir = bundle_dir.join("share/icons/hicolor/256x256/apps");
+    let icon_512_src_dir = bundle_dir.join("share/icons/hicolor/512x512/apps");
     let app_src_dir = bundle_dir.join("share/applications");
 
-    fs::create_dir_all(&icon_src_dir).expect("icon source dir");
+    fs::create_dir_all(&icon_256_src_dir).expect("icon 256 source dir");
+    fs::create_dir_all(&icon_512_src_dir).expect("icon 512 source dir");
     fs::create_dir_all(&app_src_dir).expect("app source dir");
     fs::create_dir_all(home_dir.join(".local/bin")).expect("bin dir");
 
@@ -77,14 +96,19 @@ fn install_linux_script_installs_desktop_file_and_icons_into_user_scope() {
 
     fs::write(
         app_src_dir.join("dev.wwwhynot3.slippy.desktop"),
-        "[Desktop Entry]\nType=Application\nName=Slippy\nExec=slippy\nIcon=dev.wwwhynot3.slippy\n",
+        "[Desktop Entry]\nType=Application\nName=Slippy\nExec=slippy\nIcon=dev.wwwhynot3.slippy\nStartupWMClass=dev.wwwhynot3.slippy\n",
     )
     .expect("desktop");
     fs::copy(
         Path::new("packaging/linux/icons/hicolor/256x256/apps/dev.wwwhynot3.slippy.png"),
-        icon_src_dir.join("dev.wwwhynot3.slippy.png"),
+        icon_256_src_dir.join("dev.wwwhynot3.slippy.png"),
     )
     .expect("copy icon");
+    fs::copy(
+        Path::new("packaging/linux/icons/hicolor/512x512/apps/dev.wwwhynot3.slippy.png"),
+        icon_512_src_dir.join("dev.wwwhynot3.slippy.png"),
+    )
+    .expect("copy 512 icon");
 
     let install_path = bundle_dir.join("install-linux.sh");
     fs::write(&install_path, INSTALL_LINUX).expect("install script");
@@ -109,4 +133,20 @@ fn install_linux_script_installs_desktop_file_and_icons_into_user_scope() {
             .join(".local/share/icons/hicolor/256x256/apps/dev.wwwhynot3.slippy.png")
             .exists()
     );
+    assert!(
+        home_dir
+            .join(".local/share/icons/hicolor/512x512/apps/dev.wwwhynot3.slippy.png")
+            .exists()
+    );
+
+    let desktop_entry = fs::read_to_string(
+        home_dir.join(".local/share/applications/dev.wwwhynot3.slippy.desktop"),
+    )
+    .expect("read desktop entry");
+    assert!(desktop_entry.contains(&format!(
+        "Exec={}",
+        home_dir.join(".local/bin/slippy").display()
+    )));
+    assert!(desktop_entry.contains("Icon=dev.wwwhynot3.slippy"));
+    assert!(desktop_entry.contains("StartupWMClass=dev.wwwhynot3.slippy"));
 }

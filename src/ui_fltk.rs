@@ -79,6 +79,7 @@ const DIFF_CANVAS_MIN_WIDTH: i32 = 760;
 const DIFF_TEXT_LEFT_PAD: i32 = 10;
 const SELECTION_STRIP_WIDTH: i32 = 5;
 const APP_ICON_SVG: &str = include_str!("../assets/icons/slippy.svg");
+const LINUX_DESKTOP_ID: &str = "dev.wwwhynot3.slippy";
 
 fn fltk_scheme_from_name(name: Option<&str>) -> app::Scheme {
     match name.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
@@ -254,6 +255,8 @@ pub fn run() -> Result<(), FltkError> {
     let mut window = Window::default()
         .with_size(config.config.width, config.config.height)
         .with_label("Slippy");
+    #[cfg(target_os = "linux")]
+    window.set_xclass(LINUX_DESKTOP_ID);
     apply_window_icon(&mut window);
     window.size_range(MIN_WIDTH, MIN_HEIGHT, 0, 0);
     window.set_color(palette.surface);

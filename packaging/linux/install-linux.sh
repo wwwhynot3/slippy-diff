@@ -21,8 +21,6 @@ install -m 755 "${bundle_dir}/uninstall-linux.sh" "${installed_uninstaller}"
 
 tmp_desktop="$(mktemp)"
 trap 'rm -f "${tmp_desktop}"' EXIT
-sed "s|^Exec=.*$|Exec=${installed_binary}|" "${desktop_src}" > "${tmp_desktop}"
-install -m 644 "${tmp_desktop}" "${installed_desktop}"
 
 find "${icons_src_root}" -mindepth 2 -maxdepth 2 -type d -name apps | while read -r src_dir; do
   size_dir="$(basename "$(dirname "${src_dir}")")"
@@ -31,6 +29,10 @@ find "${icons_src_root}" -mindepth 2 -maxdepth 2 -type d -name apps | while read
   install -m 644 "${src_dir}/${desktop_id}.png" "${target_dir}/${desktop_id}.png"
 done
 
+sed -e "s|^Exec=.*$|Exec=${installed_binary}|" "${desktop_src}" > "${tmp_desktop}"
+install -m 644 "${tmp_desktop}" "${installed_desktop}"
+
 echo "Slippy installed to ${installed_binary}"
 echo "Launcher installed to ${installed_desktop}"
+echo "Some desktop environments may not show the launcher icon in search until you log out and back in."
 echo "Run ${installed_uninstaller} to remove the user-scoped install."
