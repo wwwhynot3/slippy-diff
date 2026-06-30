@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/wwwhynot3/slippy-diff/compare/slippy-v0.3.1...slippy-v0.3.2) (2026-06-30)
+
+
+### Bug Fixes
+
+* align linux desktop integration metadata ([52a5532](https://github.com/wwwhynot3/slippy-diff/commit/52a55327ded603f64eae6b75342aeb19a4117e82))
+
 ## [0.3.1](https://github.com/wwwhynot3/slippy-diff/compare/slippy-v0.3.0...slippy-v0.3.1) (2026-06-30)
 
 
